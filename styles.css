@@ -668,3 +668,21 @@ div.linea-res { display: flex; margin: 4px 0; }
 .esc-boton-2 { background: var(--surface); color: var(--text); border: 2px solid var(--accent); box-shadow: none; }
 .esc-file { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; font-size: 0; }
 .esc-ver { text-align: center; color: var(--muted); font-size: 11.5px; margin-top: 28px; }
+
+/* ---- Login en el celu: banda pistacho con el logo y el formulario abajo, simple ---- */
+.login-sub { display: none; }
+@media (max-width: 720px) {
+  .login { display: flex; flex-direction: column; min-height: 100dvh; background: var(--paper); }
+  .login-arte { background: #A8C686; color: #14180f; align-items: center; justify-content: center; text-align: center; gap: 10px;
+    padding: calc(env(safe-area-inset-top, 0px) + 44px) 24px 40px; border-radius: 0 0 32px 32px; }
+  .login-arte img, :root[data-theme="dark"] .login-arte img { width: 190px; filter: none !important; content: url(logo-negro.png); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .login-arte img { filter: none; } }
+  .login-arte .login-sub { display: block; margin: 0; max-width: none; font: 700 14px var(--display); letter-spacing: .4px; text-transform: uppercase; color: #2e3d1c; }
+  .login-txt, .login-arte .pasos { display: none; }
+  .login-form { flex: 1; place-items: start center; padding: 32px 22px calc(env(safe-area-inset-bottom, 0px) + 28px); }
+  .login-form form, .login-form .caja { max-width: 420px; gap: 6px; }
+  .login-form h1 { font-size: 28px; }
+  .login-form p { margin-bottom: 20px; }
+  .login-form input { font-size: 16px; padding: 14px; border-radius: 14px; }   /* 16px: el iPhone no hace zoom al tocar */
+  .login-form .btn-grande { width: 100%; justify-content: center; padding: 15px; font-size: 16px; border-radius: 14px; margin-top: 10px; }
+}

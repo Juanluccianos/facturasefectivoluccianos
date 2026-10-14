@@ -589,7 +589,7 @@ async function vistaEscaneo() {
       ${esStandalone() ? '' : '<div class="esc-instalar" data-instalar></div>'}
       <h2 class="esc-h">Lo que cargaste</h2>
       <div id="esc-lista"><div class="vacio"><span class="cargando"></span></div></div>
-      <p class="esc-ver">versión 1.1.3</p>
+      <p class="esc-ver">versión 1.1.4</p>
     </main></div>`;
   $('#b-salir').onclick = () => salir();
   $('#b-tema').onclick = alternarTema;
@@ -649,6 +649,11 @@ const nroCbteC = (c) => c.numero ? `${String(c.pto_vta ?? 0).padStart(5, '0')}-$
 // ---------------------------------------------------------------------------
 //  Login
 // ---------------------------------------------------------------------------
+// Color de la barra del navegador en el celu (pistacho en el login, el normal adentro)
+function colorBarra(c) {
+  $$('meta[name="theme-color"]').forEach(m => { if (!m.dataset.orig) m.dataset.orig = m.content; m.content = c || m.dataset.orig; });
+}
+
 async function vistaLogin() {
   let setup = false;
   try { setup = (await api('/api/estado')).setup_requerido; } catch (e) {
@@ -657,8 +662,8 @@ async function vistaLogin() {
     return;
   }
   $('#app').innerHTML = `<div class="login">
-    <div class="login-arte"><img src="logo-negro.png" alt="Lucciano's">
-      <div><h2>Los gastos con tarjeta y efectivo, sin tipear.</h2><p>Sacale una foto al ticket o subí la factura: se lee sola, se controla y queda lista para Shares. El resumen de la tarjeta se concilia solo.</p></div>
+    <div class="login-arte"><img src="logo-negro.png" alt="Lucciano's"><p class="login-sub">Gastos con tarjeta y efectivo</p>
+      <div class="login-txt"><h2>Los gastos con tarjeta y efectivo, sin tipear.</h2><p>Sacale una foto al ticket o subí la factura: se lee sola, se controla y queda lista para Shares. El resumen de la tarjeta se concilia solo.</p></div>
       <div class="pasos"><span>${ICO.camara}Foto o PDF</span><span>${ICO.sparkle}Se lee sola</span><span>${ICO.tarjeta}Se concilia</span><span>${ICO.send}Va a Shares</span></div></div>
     <div class="login-form"><form id="f-login">
       <h1>${setup ? 'Primer ingreso' : 'Ingresar'}</h1>
@@ -669,13 +674,14 @@ async function vistaLogin() {
       <div class="campo hidden" id="c-totp"><label for="lg-t">Código de verificación</label><input id="lg-t" name="totp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" class="mono"></div>
       <button class="btn btn-acento btn-grande" type="submit">${setup ? 'Crear y entrar' : 'Entrar'} ${ICO.arrow}</button>
     </form></div></div>`;
+  colorBarra('#A8C686');
   $('#f-login').onsubmit = async (e) => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target));
     await conBoton($('button[type=submit]', e.target), async () => {
       const r = await api(setup ? '/api/setup' : '/api/login', { method: 'POST', body: fd });
       if (r.requiere_totp) { $('#c-totp').classList.remove('hidden'); $('#c-totp input').focus(); toast('Ingresá el código de tu app autenticadora.'); return; }
-      guardarToken(r.token); S.user = r.usuario;
+      guardarToken(r.token); S.user = r.usuario; colorBarra(null);
       if (!location.hash) location.hash = '#/inicio';
       iniciar();
     });
