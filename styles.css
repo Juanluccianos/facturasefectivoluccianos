@@ -649,3 +649,13 @@ div.linea-res { display: flex; margin: 4px 0; }
 .esc-env.ok > svg.i { width: 54px; height: 54px; color: var(--pos); }
 .esc-env h2 { margin: 10px 0 6px; }
 .esc-env > svg.i { display: block; margin: 0 auto; width: 54px; height: 54px; }
+
+/* Logo: imagen blanca ya hecha para el modo oscuro (el filtro invert en iPhone se ve borroso) */
+:root { --logo-img: url(logo-negro.png); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --logo-img: url(logo-blanco.png); } }
+:root[data-theme="dark"] { --logo-img: url(logo-blanco.png); }
+.brand img, .top .marca-m, .esc-top .marca-m { content: var(--logo-img); filter: none; }
+.esc-top { background: var(--surface); }
+.esc-top .marca-m { height: 36px; }
+.esc-top .ibtn { color: var(--text); width: 40px; height: 40px; }
+.esc-top .ibtn svg.i { width: 22px; height: 22px; }
