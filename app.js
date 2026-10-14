@@ -420,11 +420,11 @@ async function adminUsuarios(el) {
   el.innerHTML = `<div class="acciones" style="margin-bottom:12px"><button class="btn btn-negro" id="b-nu">Nuevo usuario</button></div>
     <table><thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>2FA</th><th>Estado</th><th></th></tr></thead><tbody>
     ${r.usuarios.map(u => `<tr><td>${esc(u.nombre)}</td><td>${esc(u.email)}</td>
-      <td><select data-rol="${u.id}">${['carga', 'aprobador', 'admin', 'director'].map(x => `<option ${u.rol === x ? 'selected' : ''}>${x}</option>`).join('')}</select></td>
+      <td><select data-rol="${u.id}">${['escaneo', 'carga', 'aprobador', 'admin'].map(x => `<option ${u.rol === x ? 'selected' : ''}>${x}</option>`).join('')}</select></td>
       <td>${u.totp_activo ? '<span class="badge b-ok">activo</span>' : '<span class="badge b-aviso">no</span>'}</td>
       <td>${u.activo ? 'Activo' : '<span class="muted">Inactivo</span>'}</td>
       <td class="acciones"><button class="btn btn-chico" data-pass="${u.id}">Resetear clave</button>${u.totp_activo ? `<button class="btn btn-chico" data-totp="${u.id}">Resetear 2FA</button>` : ''}<button class="btn btn-chico" data-act="${u.id}" data-v="${u.activo ? 0 : 1}">${u.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('')}
-    </tbody></table><p class="small muted">Roles: <b>carga</b> carga y revisa comprobantes y resúmenes · <b>aprobador</b> además envía a Shares y cierra resúmenes · <b>admin</b> todo, incluida la configuración.</p>`;
+    </tbody></table><p class="small muted">Roles: <b>escaneo</b> solo escanea tickets desde el celular y ve lo suyo · <b>carga</b> carga y revisa comprobantes y resúmenes · <b>aprobador</b> además envía a Shares y cierra resúmenes · <b>admin</b> todo, incluida la configuración.</p>`;
   const put = (id, body) => api('/api/usuarios/' + id, { method: 'PUT', body }).then(() => { toast('Guardado'); adminUsuarios(el); }).catch(e => toast(e.message, true));
   $$('[data-rol]', el).forEach(s => s.onchange = () => put(s.dataset.rol, { rol: s.value }));
   $$('[data-act]', el).forEach(b => b.onclick = () => put(b.dataset.act, { activo: b.dataset.v === '1' }));
@@ -433,7 +433,7 @@ async function adminUsuarios(el) {
   $('#b-nu', el).onclick = () => modal(`<h2>Nuevo usuario</h2><form id="f-nu">
       <div class="campo"><label>Nombre</label><input name="nombre" required></div>
       <div class="campo"><label>Email</label><input name="email" type="email" required></div>
-      <div class="campo"><label>Rol</label><select name="rol"><option>carga</option><option>aprobador</option><option>admin</option><option>director</option></select></div>
+      <div class="campo"><label>Rol</label><select name="rol"><option>escaneo</option><option selected>carga</option><option>aprobador</option><option>admin</option></select></div>
       <div class="campo"><label>Contraseña inicial</label><input name="password" type="text" minlength="10" required><div class="ayuda">Pasásela por un canal seguro; la puede cambiar en “Mi cuenta”.</div></div>
       <button class="btn btn-negro" type="submit">Crear</button></form>`, {
     alMontar: (m, cerrar) => { $('#f-nu', m).onsubmit = (e) => { e.preventDefault(); conBoton($('button', e.target), async () => { await api('/api/usuarios', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); cerrar(); toast('Usuario creado'); adminUsuarios(el); }); }; },
@@ -566,6 +566,69 @@ function chipsExc(s, max = 2) {
 }
 const MEDIOS = { efectivo: 'Efectivo', tc: 'Tarjeta corporativa' };
 const badgeMedio = (m) => `<span class="badge ${m === 'tc' ? 'b-recibida' : 'b-warn'}">${m === 'tc' ? 'Tarjeta' : 'Efectivo'}</span>`;
+
+// ---------------------------------------------------------------------------
+//  Versión celular para el rol "escaneo": un botón grande y la lista de lo suyo
+// ---------------------------------------------------------------------------
+const ESTADO_SIMPLE = { leyendo: 'Leyendo…', error_lectura: 'No se pudo leer', excepcion: 'Recibido', lista: 'Recibido', cargada: 'Cargado', error_shares: 'Recibido', rechazada: 'Rechazado' };
+const badgeSimple = (e) => `<span class="badge b-${e === 'rechazada' || e === 'error_lectura' ? 'rechazada' : e === 'cargada' ? 'cargada' : 'lista'}">${esc(ESTADO_SIMPLE[e] || e)}</span>`;
+
+async function vistaEscaneo() {
+  const nombre = String(S.user?.nombre || '').split(' ')[0];
+  $('#app').innerHTML = `<div class="esc">
+    <header class="esc-top"><img class="marca-m" src="logo-negro.png" alt="Lucciano's"><div style="flex:1"></div>
+      <button class="ibtn" id="b-tema" aria-label="Cambiar tema">${temaActual() === 'dark' ? ICO.sun : ICO.moon}</button>
+      <button class="ibtn" id="b-salir" aria-label="Salir">${ICO.logout}</button></header>
+    <main class="esc-main">
+      <h1>Hola, ${esc(nombre)}</h1>
+      <p class="muted">Sacale una foto al ticket o factura y listo: tesorería se encarga del resto.</p>
+      <button class="esc-boton" id="b-escanear">${ICO.camara}Escanear ticket</button>
+      ${esStandalone() ? '' : '<div class="esc-instalar" data-instalar></div>'}
+      <h2 class="esc-h">Lo que cargaste</h2>
+      <div id="esc-lista"><div class="vacio"><span class="cargando"></span></div></div>
+    </main></div>`;
+  $('#b-salir').onclick = () => salir();
+  $('#b-tema').onclick = alternarTema;
+  $('#b-escanear').onclick = escanearYEnviar;
+  montarInstalar($('#app'));
+  await pintarMisComprobantes();
+}
+
+async function pintarMisComprobantes() {
+  const cont = $('#esc-lista'); if (!cont) return;
+  try {
+    const { comprobantes } = await api('/api/mis-comprobantes');
+    cont.innerHTML = comprobantes.length
+      ? `<ul class="esc-lista">${comprobantes.map(c => `<li><div><b>${esc(c.razon_social_emisor || 'Comprobante #' + c.id)}</b>
+          <small>${fmtFH(c.creado_at)} · ${c.medio_pago === 'tc' ? 'Tarjeta' : 'Efectivo'}${c.estado === 'rechazada' && c.rechazo_motivo ? ' · ' + esc(c.rechazo_motivo) : ''}</small></div>
+          <div class="r">${c.total != null ? `<b>${$$m(c.total)}</b>` : ''}${badgeSimple(c.estado)}</div></li>`).join('')}</ul>`
+      : '<p class="muted">Todavía no escaneaste nada.</p>';
+  } catch (e) { cont.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+}
+
+async function escanearYEnviar() {
+  const medio = await elegirMedio('¿Cómo lo pagaste?');
+  if (!medio) return;
+  abrirEscaner(async (blob) => {
+    let cerrar;
+    modal(`<div class="esc-env"><span class="cargando"></span><h2>Enviando…</h2><p class="muted">No cierres la app, tarda unos segundos.</p></div>`, { alMontar: (el, c) => { cerrar = c; } });
+    const cuerpo = $('#modal .modal-cuerpo');
+    try {
+      if (blob.size > 15e6) throw new Error('La foto es muy pesada (más de 15 MB).');
+      const r = await api('/api/comprobantes', { method: 'POST', body: { medio_pago: medio, archivo_b64: await blobB64(blob), mime: 'image/jpeg', nombre: 'ticket.jpg' } });
+      const d = r.datos || {};
+      cuerpo.innerHTML = `<div class="esc-env ok">${ICO.check}<h2>¡Recibido!</h2>
+        <p class="muted">${esc(d.emisor?.razon_social || 'Comprobante')}${d.importes?.total != null ? ' · ' + $$m(d.importes.total) : ''}</p>
+        <div class="acciones" style="justify-content:center;margin-top:16px"><button class="btn" id="esc-listo">Listo</button><button class="btn btn-acento" id="esc-otro">${ICO.camara}Escanear otro</button></div></div>`;
+    } catch (e) {
+      cuerpo.innerHTML = `<div class="esc-env">${ICO.alert}<h2>No se pudo enviar</h2><p class="muted">${esc(e.message)}</p>
+        <div class="acciones" style="justify-content:center;margin-top:16px"><button class="btn" id="esc-listo">Cerrar</button><button class="btn btn-acento" id="esc-otro">Probar de nuevo</button></div></div>`;
+    }
+    $('#esc-listo').onclick = () => { cerrar(); pintarMisComprobantes(); };
+    $('#esc-otro').onclick = () => { cerrar(); pintarMisComprobantes(); escanearYEnviar(); };
+  });
+}
+
 const nroCbteC = (c) => c.numero ? `${String(c.pto_vta ?? 0).padStart(5, '0')}-${String(c.numero).padStart(8, '0')}` : '—';
 
 // ---------------------------------------------------------------------------
@@ -674,6 +737,7 @@ function pintarContadores(c) { $$('[data-cnt]').forEach(x => { const n = c[x.dat
 
 async function router() {
   if (!S.token) return vistaLogin();
+  if (S.user?.rol === 'escaneo') return vistaEscaneo();
   if (S.pdfUrl) { URL.revokeObjectURL(S.pdfUrl); S.pdfUrl = null; S.pdfBytes = null; }
   const h = location.hash || '#/inicio';
   const r = RUTAS.find(x => x.re.test(h)) || RUTAS[0];
@@ -715,9 +779,9 @@ document.addEventListener('keydown', (e) => {
 function elegirMedio(titulo = '¿Cómo se pagó?') {
   return new Promise((resolve) => {
     let listo = false;
-    modal(`<h2>${esc(titulo)}</h2><p class="muted">Define a qué proveedor va en Shares: efectivo → "No especificado" · tarjeta → "No especificado TC".</p>
-      <div class="medios"><button class="medio" data-m="tc">${ICO.tarjeta}<b>Tarjeta corporativa</b><small>No especificado TC (2186)</small></button>
-      <button class="medio" data-m="efectivo">${ICO.coin}<b>Efectivo</b><small>No especificado (0)</small></button></div>`, {
+    modal(`<h2>${esc(titulo)}</h2>${S.user?.rol === 'escaneo' ? '' : '<p class="muted">Define a qué proveedor va en Shares: efectivo → "No especificado" · tarjeta → "No especificado TC".</p>'}
+      <div class="medios"><button class="medio" data-m="tc">${ICO.tarjeta}<b>Tarjeta corporativa</b>${S.user?.rol === 'escaneo' ? '' : '<small>No especificado TC (2186)</small>'}</button>
+      <button class="medio" data-m="efectivo">${ICO.coin}<b>Efectivo</b>${S.user?.rol === 'escaneo' ? '' : '<small>No especificado (0)</small>'}</button></div>`, {
       alMontar: (el, cerrar) => {
         $$('[data-m]', el).forEach(b => b.onclick = () => { listo = true; cerrar(); resolve(b.dataset.m); });
         const obs = new MutationObserver(() => { if ($('#modal').hidden) { obs.disconnect(); if (!listo) resolve(null); } });
@@ -959,7 +1023,7 @@ async function vistaLista(el, modo) {
     datos = r.comprobantes;
     $('#tb').innerHTML = datos.length ? datos.map(c => `<tr class="click" data-id="${c.id}">
       <td><div class="prov">${cuad(nombreProv(c))}<div><b>${esc(nombreProv(c))}</b><small class="mono">${c.cuit_emisor ? fmtCuit(c.cuit_emisor) + ' · ' : ''}#${c.id}</small></div></div></td>
-      <td>${badgeEstado(c.estado)}<small class="sub-celda">${fmtFH(c.creado_at)}</small></td>
+      <td>${badgeEstado(c.estado)}<small class="sub-celda">${fmtFH(c.creado_at)} · ${esc(String(c.creado_por || '').split('@')[0])}</small></td>
       <td>${badgeMedio(c.medio_pago)}${c.resumen_id ? `<small class="sub-celda">en resumen</small>` : ''}</td>
       <td class="mono">${esc(TIPOS[c.tipo_cbte_arca] || '')} ${nroCbteC(c)}</td>
       <td class="mono">${fmtF(c.fecha_emision)}</td>
