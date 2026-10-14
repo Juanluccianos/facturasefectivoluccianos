@@ -582,14 +582,24 @@ async function vistaEscaneo() {
     <main class="esc-main">
       <h1>Hola, ${esc(nombre)}</h1>
       <p class="muted">Sacale una foto al ticket o factura y listo: tesorería se encarga del resto.</p>
-      <button class="esc-boton" id="b-escanear">${ICO.camara}Escanear ticket</button>
+      <div class="esc-botones">
+        <label class="esc-boton">${ICO.tarjeta}<span>Ticket pagado<br>con tarjeta</span><input type="file" accept="image/*" class="esc-file" data-medio="tc"></label>
+        <label class="esc-boton esc-boton-2">${ICO.coin}<span>Ticket pagado<br>en efectivo</span><input type="file" accept="image/*" class="esc-file" data-medio="efectivo"></label>
+      </div>
       ${esStandalone() ? '' : '<div class="esc-instalar" data-instalar></div>'}
       <h2 class="esc-h">Lo que cargaste</h2>
       <div id="esc-lista"><div class="vacio"><span class="cargando"></span></div></div>
+      <p class="esc-ver">versión 1.1.3</p>
     </main></div>`;
   $('#b-salir').onclick = () => salir();
   $('#b-tema').onclick = alternarTema;
-  $('#b-escanear').onclick = escanearYEnviar;
+  // El input va DENTRO del botón y lo toca la persona: es lo único 100% confiable en iPhone
+  $$('.esc-file').forEach(inp => inp.addEventListener('change', () => {
+    const f = inp.files && inp.files[0];
+    const medio = inp.dataset.medio;
+    if (f) procesarFotoEscaneo(f, medio);
+    setTimeout(() => { inp.value = ''; }, 0);
+  }));
   montarInstalar($('#app'));
   await pintarMisComprobantes();
 }
@@ -606,27 +616,32 @@ async function pintarMisComprobantes() {
   } catch (e) { cont.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
 }
 
-async function escanearYEnviar() {
-  const medio = await elegirMedio('¿Cómo lo pagaste?');
-  if (!medio) return;
-  abrirEscaner(async (blob) => {
-    let cerrar;
-    modal(`<div class="esc-env"><span class="cargando"></span><h2>Enviando…</h2><p class="muted">No cierres la app, tarda unos segundos.</p></div>`, { alMontar: (el, c) => { cerrar = c; } });
-    const cuerpo = $('#modal .modal-cuerpo');
-    try {
-      if (blob.size > 15e6) throw new Error('La foto es muy pesada (más de 15 MB).');
-      const r = await api('/api/comprobantes', { method: 'POST', body: { medio_pago: medio, archivo_b64: await blobB64(blob), mime: 'image/jpeg', nombre: 'ticket.jpg' } });
-      const d = r.datos || {};
-      cuerpo.innerHTML = `<div class="esc-env ok">${ICO.check}<h2>¡Recibido!</h2>
-        <p class="muted">${esc(d.emisor?.razon_social || 'Comprobante')}${d.importes?.total != null ? ' · ' + $$m(d.importes.total) : ''}</p>
-        <div class="acciones" style="justify-content:center;margin-top:16px"><button class="btn" id="esc-listo">Listo</button><button class="btn btn-acento" id="esc-otro">${ICO.camara}Escanear otro</button></div></div>`;
-    } catch (e) {
-      cuerpo.innerHTML = `<div class="esc-env">${ICO.alert}<h2>No se pudo enviar</h2><p class="muted">${esc(e.message)}</p>
-        <div class="acciones" style="justify-content:center;margin-top:16px"><button class="btn" id="esc-listo">Cerrar</button><button class="btn btn-acento" id="esc-otro">Probar de nuevo</button></div></div>`;
-    }
-    $('#esc-listo').onclick = () => { cerrar(); pintarMisComprobantes(); };
-    $('#esc-otro').onclick = () => { cerrar(); pintarMisComprobantes(); escanearYEnviar(); };
-  });
+function procesarFotoEscaneo(f, medio) {
+  const img = new Image();
+  img.onload = () => {
+    try { montarEscaner(img, (blob) => enviarEscaneo(blob, medio), () => toast('Tocá de nuevo el botón para sacar otra foto.')); }
+    catch (e) { $('#scanner')?.remove(); enviarEscaneo(f, medio); }
+  };
+  img.onerror = () => enviarEscaneo(f, medio);   // si no la puede mostrar, la manda igual
+  img.src = URL.createObjectURL(f);
+}
+
+async function enviarEscaneo(blob, medio) {
+  let cerrar;
+  modal(`<div class="esc-env"><span class="cargando"></span><h2>Enviando…</h2><p class="muted">No cierres la app, tarda unos segundos.</p></div>`, { alMontar: (el, c) => { cerrar = c; } });
+  const cuerpo = $('#modal .modal-cuerpo');
+  try {
+    if (blob.size > 15e6) throw new Error('La foto es muy pesada (más de 15 MB).');
+    const r = await api('/api/comprobantes', { method: 'POST', body: { medio_pago: medio, archivo_b64: await blobB64(blob), mime: blob.type || 'image/jpeg', nombre: 'ticket.jpg' } });
+    const d = r.datos || {};
+    cuerpo.innerHTML = `<div class="esc-env ok">${ICO.check}<h2>¡Recibido!</h2>
+      <p class="muted">${esc(d.emisor?.razon_social || 'Comprobante')}${d.importes?.total != null ? ' · ' + $$m(d.importes.total) : ''}</p>
+      <div class="acciones" style="justify-content:center;margin-top:16px"><button class="btn btn-acento" id="esc-listo">Listo</button></div></div>`;
+  } catch (e) {
+    cuerpo.innerHTML = `<div class="esc-env">${ICO.alert}<h2>No se pudo enviar</h2><p class="muted">${esc(e.message)}</p>
+      <div class="acciones" style="justify-content:center;margin-top:16px"><button class="btn" id="esc-listo">Cerrar</button></div></div>`;
+  }
+  $('#esc-listo').onclick = () => { cerrar(); pintarMisComprobantes(); };
 }
 
 const nroCbteC = (c) => c.numero ? `${String(c.pto_vta ?? 0).padStart(5, '0')}-${String(c.numero).padStart(8, '0')}` : '—';
@@ -795,13 +810,8 @@ async function iniciarCarga(tipo, opciones = {}) {
   const medio = opciones.medio || await elegirMedio();
   if (!medio) return;
   if (tipo === 'foto') return abrirEscaner((blob) => subirComprobantes([{ blob, nombre: 'ticket.jpg', mime: 'image/jpeg' }], medio, opciones));
-  const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = 'application/pdf,image/*'; inp.multiple = !opciones.movimiento_id;
-  inp.onchange = () => {
-    const files = [...inp.files];
-    if (files.length) subirComprobantes(files.map(f => ({ blob: f, nombre: f.name, mime: f.type || 'application/pdf' })), medio, opciones);
-  };
-  inp.click();
+  pedirArchivos({ accept: 'application/pdf,image/*', multiple: !opciones.movimiento_id },
+    (files) => subirComprobantes(files.map(f => ({ blob: f, nombre: f.name, mime: f.type || 'application/pdf' })), medio, opciones));
 }
 
 const blobB64 = (blob) => new Promise((ok, mal) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = mal; r.readAsDataURL(blob); });
@@ -828,18 +838,45 @@ async function subirComprobantes(archivos, medio, opciones = {}) {
   else { res.insertAdjacentHTML('beforeend', '<div class="acciones" style="margin-top:12px"><a class="btn btn-acento" href="#/revisar">Ir a Para revisar</a></div>'); if (opciones.alTerminar) opciones.alTerminar(null); else if (location.hash === '#/revisar' || location.hash === '#/comprobantes') router(); }
 }
 
+// Selector de archivos. El input tiene que estar DENTRO de la página: en iPhone, si queda suelto,
+// el navegador a veces lo descarta mientras la cámara está abierta y nunca avisa que se sacó la foto.
+function pedirArchivos({ accept, multiple = false }, alElegir) {
+  $$('input[data-picker]').forEach(x => x.remove());
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = accept; inp.multiple = multiple; inp.dataset.picker = '1';
+  inp.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0';
+  document.body.appendChild(inp);
+  let hecho = false;
+  const listo = () => {
+    if (hecho) return;
+    const files = [...(inp.files || [])];
+    if (!files.length) return;
+    hecho = true; inp.remove();
+    try { alElegir(files); } catch (e) { toast('Algo falló: ' + e.message, true); }
+  };
+  inp.addEventListener('change', listo);
+  inp.addEventListener('input', listo);
+  inp.click();
+}
+
 // ---- Escáner de tickets (el mismo de Viáticos: cámara nativa → esquinas → perspectiva → gris) ----
 function abrirEscaner(alListo) {
-  const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = 'image/*';   // sin 'capture': en iPhone ofrece "Tomar foto / Fototeca" y no repite el permiso
-  inp.onchange = () => {
-    const f = inp.files[0]; if (!f) return;
+  // sin 'capture': en iPhone ofrece "Tomar foto / Fototeca" y no repite el permiso
+  pedirArchivos({ accept: 'image/*' }, ([f]) => {
+    const url = URL.createObjectURL(f);
     const img = new Image();
-    img.onload = () => montarEscaner(img, alListo, () => abrirEscaner(alListo));
-    img.onerror = () => toast('No pude abrir esa imagen.', true);
-    img.src = URL.createObjectURL(f);
-  };
-  inp.click();
+    img.onload = () => {
+      try { montarEscaner(img, alListo, () => abrirEscaner(alListo)); }
+      catch (e) {
+        // Si el recorte falla, se manda la foto tal cual: mejor eso que perderla
+        $('#scanner')?.remove();
+        toast('No pude recortar la foto, la mando entera.');
+        alListo(f);
+      }
+    };
+    img.onerror = () => { toast('No pude abrir esa foto. Probá sacarla de nuevo.', true); };
+    img.src = url;
+  });
 }
 
 function montarEscaner(rawImg, alListo, otraFoto) {
@@ -1427,3 +1464,7 @@ async function vistaGuia(el) {
       <p class="muted">Cuando no quede nada pendiente, cerrá el resumen.</p>
     </div></div>`;
 }
+
+// Si algo explota en el celu, que se vea en pantalla en vez de quedar en silencio
+window.addEventListener('error', (e) => { if (e?.message && !/ResizeObserver/.test(e.message)) toast('Error: ' + e.message, true); });
+window.addEventListener('unhandledrejection', (e) => { const m = e?.reason?.message || String(e?.reason || ''); if (m) toast('Error: ' + m, true); });

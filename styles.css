@@ -659,3 +659,12 @@ div.linea-res { display: flex; margin: 4px 0; }
 .esc-top .marca-m { height: 36px; }
 .esc-top .ibtn { color: var(--text); width: 40px; height: 40px; }
 .esc-top .ibtn svg.i { width: 22px; height: 22px; }
+/* Barra del celu: baja el logo fuera de la franja que el iPhone difumina bajo la hora/batería,
+   y queda fija arriba con el mismo color que la barra de estado */
+.esc-top { position: sticky; top: 0; z-index: 5; background: var(--paper); padding: calc(env(safe-area-inset-top, 0px) + 22px) 18px 14px; }
+.esc-main { padding-top: 26px; }
+.esc-botones { display: grid; gap: 12px; margin: 22px 0 18px; }
+.esc-botones .esc-boton { margin: 0; position: relative; overflow: hidden; padding: 26px 16px; text-align: center; line-height: 1.2; }
+.esc-boton-2 { background: var(--surface); color: var(--text); border: 2px solid var(--accent); box-shadow: none; }
+.esc-file { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; font-size: 0; }
+.esc-ver { text-align: center; color: var(--muted); font-size: 11.5px; margin-top: 28px; }
