@@ -1307,7 +1307,7 @@ async function adminSalud(el) {
   const fila = (ok, t, det, prueba) => `<tr><td>${ok ? '<span class="badge b-ok">OK</span>' : '<span class="badge b-normal">Falta</span>'}</td><td><b>${t}</b><div class="small muted">${det}</div></td><td>${prueba ? `<button class="btn btn-chico" data-probar="${prueba}">Probar</button>` : ''}</td></tr>`;
   el.innerHTML = `<table><tbody>
     ${fila(s.gemini, 'Gemini (lectura con IA)', `GEMINI_KEY · modelos ${esc(s.gemini_modelos.join(', '))}`, 'gemini')}
-    ${fila(s.drive, 'Google Drive (archivos)', 'GOOGLE_SERVICE_ACCOUNT y GOOGLE_DRIVE_FOLDER_ID', 'drive')}
+    ${fila(s.drive, 'Google Drive (vía Apps Script)', 'APPS_SCRIPT_URL y APPS_SCRIPT_SECRET', 'drive')}
     ${fila(s.shares, 'Shares', esc(s.shares_base), 'shares')}
     ${fila(s.arca_cert && s.arca_modo !== 'off', 'ARCA (constatación de CAE)', `modo ${esc(s.arca_modo)} · certificado ${s.arca_cert ? 'cargado' : 'falta'} (opcional)`, s.arca_modo !== 'off' ? 'arca' : '')}
     ${fila(s.cuentas > 0, 'Plan de cuentas', `${s.cuentas} cuentas`)}
