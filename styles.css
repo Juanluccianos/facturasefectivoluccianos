@@ -686,3 +686,9 @@ div.linea-res { display: flex; margin: 4px 0; }
   .login-form input { font-size: 16px; padding: 14px; border-radius: 14px; }   /* 16px: el iPhone no hace zoom al tocar */
   .login-form .btn-grande { width: 100%; justify-content: center; padding: 15px; font-size: 16px; border-radius: 14px; margin-top: 10px; }
 }
+/* Barra de arriba en el celu: deja lugar para la hora/batería del iPhone y no queda difuminada */
+@media (max-width: 860px) {
+  .top { height: calc(var(--top-h) + env(safe-area-inset-top, 0px)); padding-top: env(safe-area-inset-top, 0px); background: var(--paper); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .top .marca-m { height: 32px; }
+  input, select, textarea { font-size: 16px; }
+}
