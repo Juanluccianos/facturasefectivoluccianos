@@ -112,6 +112,25 @@ function modal(html, { ancho = false, alMontar } = {}) {
   return cerrar;
 }
 
+// Confirmación propia (en vez de confirm() del navegador, que Chrome puede bloquear en silencio
+// si alguna vez se tildó "no permitir más diálogos": ahí el botón parece no hacer nada)
+function confirmar(texto, { boton = 'Sí, seguir', peligro = false } = {}) {
+  return new Promise((resolve) => {
+    let hecho = false;
+    modal(`<h2 style="margin-bottom:6px">¿Confirmás?</h2><p class="muted" style="white-space:pre-line;margin:0 0 18px">${esc(texto)}</p>
+      <div class="acciones" style="justify-content:flex-end"><button class="btn" data-no>Cancelar</button><button class="btn ${peligro ? 'btn-rojo' : 'btn-acento'}" data-si>${esc(boton)}</button></div>`, {
+      alMontar: (el, cerrar) => {
+        const fin = (v) => { if (hecho) return; hecho = true; cerrar(); resolve(v); };
+        $('[data-si]', el).onclick = () => fin(true);
+        $('[data-no]', el).onclick = () => fin(false);
+        setTimeout(() => $('[data-si]', el)?.focus(), 0);
+        const obs = new MutationObserver(() => { if ($('#modal').hidden) { obs.disconnect(); if (!hecho) { hecho = true; resolve(false); } } });
+        obs.observe($('#modal'), { attributes: true });
+      },
+    });
+  });
+}
+
 function pedirTexto({ titulo, ayuda = '', etiqueta = 'Comentario', boton = 'Confirmar', minimo = 5, valor = '' }) {
   return new Promise((resolve) => {
     let listo = false;
@@ -428,7 +447,7 @@ async function adminUsuarios(el) {
   const put = (id, body) => api('/api/usuarios/' + id, { method: 'PUT', body }).then(() => { toast('Guardado'); adminUsuarios(el); }).catch(e => toast(e.message, true));
   $$('[data-rol]', el).forEach(s => s.onchange = () => put(s.dataset.rol, { rol: s.value }));
   $$('[data-act]', el).forEach(b => b.onclick = () => put(b.dataset.act, { activo: b.dataset.v === '1' }));
-  $$('[data-totp]', el).forEach(b => b.onclick = () => confirm('¿Resetear el doble factor de este usuario?') && put(b.dataset.totp, { reset_totp: true }));
+  $$('[data-totp]', el).forEach(b => b.onclick = async () => await confirmar('¿Resetear el doble factor de este usuario?') && put(b.dataset.totp, { reset_totp: true }));
   $$('[data-pass]', el).forEach(b => b.onclick = async () => { const p = await pedirTexto({ titulo: 'Nueva contraseña', etiqueta: 'Contraseña (mínimo 10 caracteres)', boton: 'Guardar', minimo: 10 }); if (p) put(b.dataset.pass, { password: p }); });
   $('#b-nu', el).onclick = () => modal(`<h2>Nuevo usuario</h2><form id="f-nu">
       <div class="campo"><label>Nombre</label><input name="nombre" required></div>
@@ -469,7 +488,7 @@ async function adminConfig(el) {
   $$('[data-sw]', el).forEach(c => c.onchange = async () => {
     const it = CFG_UI.flatMap(x => x.items).find(x => x.k === c.dataset.sw);
     const msg = c.checked ? it.confirmarSi : it.confirmarNo;
-    if (msg && !confirm(msg)) { c.checked = !c.checked; return; }
+    if (msg && !await confirmar(msg)) { c.checked = !c.checked; return; }
     try { await guardar(it.k, c.checked); $(`[data-swtxt="${it.k}"]`, el).textContent = c.checked ? (it.si || 'Activado') : (it.no || 'Apagado'); }
     catch (e) { c.checked = !c.checked; toast(e.message, true); }
   });
@@ -483,7 +502,7 @@ async function adminConfig(el) {
     catch (e) { toast(e.message, true); }
   }));
   $$('[data-tel-ok]', el).forEach(b => b.onclick = () => conBoton(b, async () => { const i = $(`[data-tel="${b.dataset.telOk}"]`, el); const x = await guardar(b.dataset.telOk, i.value); i.value = x.config[b.dataset.telOk] || ''; }));
-  $$('[data-reset]', el).forEach(b => b.onclick = () => confirm('¿Volver al valor original?') && conBoton(b, async () => { await guardar(b.dataset.reset, null); recargar(); }));
+  $$('[data-reset]', el).forEach(b => b.onclick = async () => await confirmar('¿Volver al valor original?') && conBoton(b, async () => { await guardar(b.dataset.reset, null); recargar(); }));
 }
 
 
@@ -589,7 +608,7 @@ async function vistaEscaneo() {
       ${esStandalone() ? '' : '<div class="esc-instalar" data-instalar></div>'}
       <h2 class="esc-h">Lo que cargaste</h2>
       <div id="esc-lista"><div class="vacio"><span class="cargando"></span></div></div>
-      <p class="esc-ver">versión 1.1.5</p>
+      <p class="esc-ver">versión 1.1.6</p>
     </main></div>`;
   $('#b-salir').onclick = () => salir();
   $('#b-tema').onclick = alternarTema;
@@ -1226,7 +1245,7 @@ function conectarComprobante(el, r, editable) {
   };
   const b = (sel, fn) => { const x = $(sel); if (x) x.onclick = () => conBoton(x, fn); };
   b('#b-ok', async () => { const n = await guardar(); recargar(n); toast(n.comprobante.estado === 'lista' ? 'Guardado: quedó listo para Shares' : 'Guardado: todavía falta algo'); });
-  b('#b-releer', async () => { if (!confirm('¿Volver a leer el archivo con la IA? Se pisan los datos cargados.')) return; recargar(await api(`/api/comprobantes/${id}/releer`, { method: 'POST' })); toast('Leído de nuevo'); });
+  b('#b-releer', async () => { if (!await confirmar('¿Volver a leer el archivo con la IA? Se pisan los datos cargados.')) return; recargar(await api(`/api/comprobantes/${id}/releer`, { method: 'POST' })); toast('Leído de nuevo'); });
   b('#b-reabrir', async () => recargar(await api(`/api/comprobantes/${id}/reabrir`, { method: 'POST' })));
   b('#b-enviar', async () => {
     const res = (await api('/api/shares/enviar', { method: 'POST', body: { ids: [id] } })).resultados[0];
@@ -1264,7 +1283,7 @@ async function vistaShares(el) {
   const be = $('#b-env');
   if (be) be.onclick = () => conBoton(be, async () => {
     if (!sel.size) throw new Error('Elegí al menos uno.');
-    if (!confirm(`¿Enviar ${sel.size} comprobante(s) a Shares?`)) return;
+    if (!await confirmar(`¿Enviar ${sel.size} comprobante(s) a Shares?`)) return;
     const res = (await api('/api/shares/enviar', { method: 'POST', body: { ids: [...sel] } })).resultados;
     const mal = res.filter(x => !x.ok);
     toast(mal.length ? `${res.length - mal.length} cargados, ${mal.length} con error` : `${res.length} cargados en Shares`, !!mal.length);
@@ -1353,7 +1372,7 @@ function pintarResumen(el, r) {
   pintarFilas();
   const bb = (sel, fn) => { const x = $(sel); if (x) x.onclick = () => conBoton(x, fn); };
   bb('#b-conc', async () => { pintarResumen(el, await api(`/api/resumenes/${R.id}/conciliar`, { method: 'POST' })); toast('Cruce actualizado'); });
-  bb('#b-cerrar', async () => { if (T.pendientes && !confirm(`Quedan ${T.pendientes} consumo(s) sin comprobante. ¿Cerrar igual?`)) return; pintarResumen(el, await api(`/api/resumenes/${R.id}/cerrar`, { method: 'POST' })); });
+  bb('#b-cerrar', async () => { if (T.pendientes && !await confirmar(`Quedan ${T.pendientes} consumo(s) sin comprobante. ¿Cerrar igual?`)) return; pintarResumen(el, await api(`/api/resumenes/${R.id}/cerrar`, { method: 'POST' })); });
   bb('#b-reabrir', async () => pintarResumen(el, await api(`/api/resumenes/${R.id}/reabrir`, { method: 'POST' })));
   bb('#b-releer-res', async () => pintarResumen(el, await api(`/api/resumenes/${R.id}/releer`, { method: 'POST', body: { forzar: true } })));
   bb('#b-ver-pdf', async () => { const w = window.open('', '_blank'); const res = await api(`/api/resumenes/${R.id}/archivo`, { raw: true }); const u = URL.createObjectURL(await res.blob()); if (w) w.location = u; else location.href = u; });
