@@ -692,3 +692,10 @@ div.linea-res { display: flex; margin: 4px 0; }
   .top .marca-m { height: 32px; }
   input, select, textarea { font-size: 16px; }
 }
+
+/* Subidas en segundo plano (celular) */
+.esc-sub { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; margin: -6px 0 16px; border-radius: var(--r-lg); background: var(--info-bg); color: var(--info); font-size: 13.5px; font-weight: 600; }
+.esc-sub .cargando { width: 18px; height: 18px; flex: none; }
+.esc-sub > svg.i { width: 18px; height: 18px; flex: none; }
+.esc-sub > span { flex: 1; min-width: 160px; }
+.esc-sub.mal { background: var(--neg-bg); color: var(--neg); }

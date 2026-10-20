@@ -589,7 +589,7 @@ const badgeMedio = (m) => `<span class="badge ${m === 'tc' ? 'b-recibida' : 'b-w
 // ---------------------------------------------------------------------------
 //  Versión celular para el rol "escaneo": un botón grande y la lista de lo suyo
 // ---------------------------------------------------------------------------
-const ESTADO_SIMPLE = { leyendo: 'Leyendo…', error_lectura: 'No se pudo leer', excepcion: 'Recibido', lista: 'Recibido', cargada: 'Cargado', error_shares: 'Recibido', rechazada: 'Rechazado' };
+const ESTADO_SIMPLE = { leyendo: 'Leyendo con IA…', error_lectura: 'No se pudo leer', excepcion: 'Recibido', lista: 'Recibido', cargada: 'Cargado', error_shares: 'Recibido', rechazada: 'Rechazado' };
 const badgeSimple = (e) => `<span class="badge b-${e === 'rechazada' || e === 'error_lectura' ? 'rechazada' : e === 'cargada' ? 'cargada' : 'lista'}">${esc(ESTADO_SIMPLE[e] || e)}</span>`;
 
 async function vistaEscaneo() {
@@ -605,10 +605,11 @@ async function vistaEscaneo() {
         <label class="esc-boton">${ICO.tarjeta}<span>Ticket pagado<br>con tarjeta</span><input type="file" accept="image/*" class="esc-file" data-medio="tc"></label>
         <label class="esc-boton esc-boton-2">${ICO.coin}<span>Ticket pagado<br>en efectivo</span><input type="file" accept="image/*" class="esc-file" data-medio="efectivo"></label>
       </div>
+      <div id="esc-subidas"></div>
       ${esStandalone() ? '' : '<div class="esc-instalar" data-instalar></div>'}
       <h2 class="esc-h">Lo que cargaste</h2>
       <div id="esc-lista"><div class="vacio"><span class="cargando"></span></div></div>
-      <p class="esc-ver">versión 1.1.6</p>
+      <p class="esc-ver">versión 1.3.0</p>
     </main></div>`;
   $('#b-salir').onclick = () => salir();
   $('#b-tema').onclick = alternarTema;
@@ -620,13 +621,17 @@ async function vistaEscaneo() {
     setTimeout(() => { inp.value = ''; }, 0);
   }));
   montarInstalar($('#app'));
+  pintarSubidas($('#esc-subidas'));
   await pintarMisComprobantes();
 }
 
 async function pintarMisComprobantes() {
   const cont = $('#esc-lista'); if (!cont) return;
+  clearTimeout(pintarMisComprobantes._t);
   try {
     const { comprobantes } = await api('/api/mis-comprobantes');
+    // Mientras haya alguno leyéndose, la lista se actualiza sola
+    if (comprobantes.some(c => c.estado === 'leyendo')) pintarMisComprobantes._t = setTimeout(pintarMisComprobantes, 5000);
     cont.innerHTML = comprobantes.length
       ? `<ul class="esc-lista">${comprobantes.map(c => `<li><div><b>${esc(c.razon_social_emisor || 'Comprobante #' + c.id)}</b>
           <small>${fmtFH(c.creado_at)} · ${c.medio_pago === 'tc' ? 'Tarjeta' : 'Efectivo'}${c.estado === 'rechazada' && c.rechazo_motivo ? ' · ' + esc(c.rechazo_motivo) : ''}</small></div>
@@ -635,32 +640,67 @@ async function pintarMisComprobantes() {
   } catch (e) { cont.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
 }
 
+// ---------------------------------------------------------------------------
+//  Cola de subidas: las fotos escaneadas se suben de a una en segundo plano.
+//  Quien escanea no espera: saca la foto, toca Procesar y ya puede ir al siguiente ticket.
+//  El servidor guarda el archivo y lo lee con Gemini por su cuenta.
+// ---------------------------------------------------------------------------
+const SUBIDAS = { cola: [], activa: false, n: 0 };
+function encolarSubida(blob, medio) {
+  if (blob.size > 15e6) { toast('La foto es muy pesada (más de 15 MB).', true); return; }
+  SUBIDAS.cola.push({ k: ++SUBIDAS.n, blob, medio, estado: 'subiendo', at: Date.now() });
+  avisarSubidas();
+  procesarSubidas();
+}
+async function procesarSubidas() {
+  if (SUBIDAS.activa) return;
+  SUBIDAS.activa = true;
+  try {
+    for (;;) {
+      const it = SUBIDAS.cola.find(x => x.estado === 'subiendo');
+      if (!it) break;
+      try {
+        const r = await api('/api/comprobantes', { method: 'POST', body: { medio_pago: it.medio, archivo_b64: await blobB64(it.blob), mime: it.blob.type || 'image/jpeg', nombre: 'ticket.jpg' } });
+        it.estado = 'ok'; it.cid = r.comprobante.id; it.blob = null;
+        if (S.user?.rol !== 'escaneo') toast(`✓ Ticket #${it.cid} recibido: se está leyendo solo`);
+      } catch (e) { it.estado = 'error'; it.error = e.message; }
+      avisarSubidas();
+    }
+  } finally { SUBIDAS.activa = false; }
+  // Las que ya subieron se sacan de la lista local (aparecen en la lista del servidor)
+  setTimeout(() => { SUBIDAS.cola = SUBIDAS.cola.filter(x => x.estado !== 'ok'); avisarSubidas(); }, 4000);
+}
+function reintentarSubida(k) { const it = SUBIDAS.cola.find(x => x.k === k); if (it && it.blob) { it.estado = 'subiendo'; avisarSubidas(); procesarSubidas(); } }
+function descartarSubida(k) { SUBIDAS.cola = SUBIDAS.cola.filter(x => x.k !== k); avisarSubidas(); }
+function avisarSubidas() {
+  const c = $('#esc-subidas'); if (c) pintarSubidas(c);
+  if (SUBIDAS.cola.some(x => x.estado === 'ok') && $('#esc-lista')) pintarMisComprobantes();
+}
+window.addEventListener('beforeunload', (e) => { if (SUBIDAS.cola.some(x => x.estado === 'subiendo')) { e.preventDefault(); e.returnValue = ''; } });
+function pintarSubidas(c) {
+  const sub = SUBIDAS.cola.filter(x => x.estado === 'subiendo').length;
+  const err = SUBIDAS.cola.filter(x => x.estado === 'error');
+  c.innerHTML = (sub ? `<div class="esc-sub"><span class="cargando"></span><span>Subiendo ${sub} ticket${sub > 1 ? 's' : ''}… podés seguir sacando fotos. No cierres la app hasta que termine.</span></div>` : '')
+    + err.map(x => `<div class="esc-sub mal">${ICO.alert}<span>No se pudo subir un ticket (${esc(x.error || 'sin conexión')}).</span><button class="btn btn-chico btn-acento" data-reint="${x.k}">Reintentar</button><button class="btn btn-chico" data-desc="${x.k}">Descartar</button></div>`).join('');
+  $$('[data-reint]', c).forEach(b => b.onclick = () => reintentarSubida(Number(b.dataset.reint)));
+  $$('[data-desc]', c).forEach(b => b.onclick = () => descartarSubida(Number(b.dataset.desc)));
+}
+
 function procesarFotoEscaneo(f, medio) {
   const img = new Image();
   img.onload = () => {
-    try { montarEscaner(img, (blob) => enviarEscaneo(blob, medio), () => toast('Tocá de nuevo el botón para sacar otra foto.')); }
-    catch (e) { $('#scanner')?.remove(); enviarEscaneo(f, medio); }
+    try { montarEscaner(img, (blob) => { encolarSubida(blob, medio); toast('Listo: se sube sola. Podés sacar la siguiente.'); }, () => toast('Tocá de nuevo el botón para sacar otra foto.')); }
+    catch (e) { $('#scanner')?.remove(); encolarSubida(f, medio); }
   };
-  img.onerror = () => enviarEscaneo(f, medio);   // si no la puede mostrar, la manda igual
+  img.onerror = () => encolarSubida(f, medio);   // si no la puede mostrar, la manda igual
   img.src = URL.createObjectURL(f);
 }
 
-async function enviarEscaneo(blob, medio) {
-  let cerrar;
-  modal(`<div class="esc-env"><span class="cargando"></span><h2>Enviando…</h2><p class="muted">No cierres la app, tarda unos segundos.</p></div>`, { alMontar: (el, c) => { cerrar = c; } });
-  const cuerpo = $('#modal .modal-cuerpo');
-  try {
-    if (blob.size > 15e6) throw new Error('La foto es muy pesada (más de 15 MB).');
-    const r = await api('/api/comprobantes', { method: 'POST', body: { medio_pago: medio, archivo_b64: await blobB64(blob), mime: blob.type || 'image/jpeg', nombre: 'ticket.jpg' } });
-    const d = r.datos || {};
-    cuerpo.innerHTML = `<div class="esc-env ok">${ICO.check}<h2>¡Recibido!</h2>
-      <p class="muted">${esc(d.emisor?.razon_social || 'Comprobante')}${d.importes?.total != null ? ' · ' + $$m(d.importes.total) : ''}</p>
-      <div class="acciones" style="justify-content:center;margin-top:16px"><button class="btn btn-acento" id="esc-listo">Listo</button></div></div>`;
-  } catch (e) {
-    cuerpo.innerHTML = `<div class="esc-env">${ICO.alert}<h2>No se pudo enviar</h2><p class="muted">${esc(e.message)}</p>
-      <div class="acciones" style="justify-content:center;margin-top:16px"><button class="btn" id="esc-listo">Cerrar</button></div></div>`;
-  }
-  $('#esc-listo').onclick = () => { cerrar(); pintarMisComprobantes(); };
+// 153 → "2 h 33 min" · 45 → "45 min"
+function fmtDuracion(min) {
+  min = Math.round(Number(min) || 0);
+  const h = Math.floor(min / 60), m = min % 60;
+  return h ? `${h} h${m ? ' ' + m + ' min' : ''}` : `${m} min`;
 }
 
 const nroCbteC = (c) => c.numero ? `${String(c.pto_vta ?? 0).padStart(5, '0')}-${String(c.numero).padStart(8, '0')}` : '—';
@@ -834,7 +874,10 @@ function elegirMedio(titulo = '¿Cómo se pagó?') {
 async function iniciarCarga(tipo, opciones = {}) {
   const medio = opciones.medio || await elegirMedio();
   if (!medio) return;
-  if (tipo === 'foto') return abrirEscaner((blob) => subirComprobantes([{ blob, nombre: 'ticket.jpg', mime: 'image/jpeg' }], medio, opciones));
+  if (tipo === 'foto') {
+    if (!opciones.movimiento_id && !opciones.alTerminar) return abrirEscaner((blob) => { encolarSubida(blob, medio); toast('Subiendo en segundo plano: podés escanear el siguiente.'); });
+    return abrirEscaner((blob) => subirComprobantes([{ blob, nombre: 'ticket.jpg', mime: 'image/jpeg' }], medio, opciones));
+  }
   pedirArchivos({ accept: 'application/pdf,image/*', multiple: !opciones.movimiento_id },
     (files) => subirComprobantes(files.map(f => ({ blob: f, nombre: f.name, mime: f.type || 'application/pdf' })), medio, opciones));
 }
@@ -1046,6 +1089,8 @@ async function vistaInicio(el) {
       <a class="kpi ${pe('lista').n ? 'ok' : ''}" href="${puede('aprobador') ? '#/shares' : '#/comprobantes'}"><div class="et">Listos para Shares</div><div class="val">${pe('lista').n}</div><div class="sub">${$$corto(pe('lista').monto)}</div></a>
       <div class="kpi"><div class="et">Este mes · tarjeta</div><div class="val">${$$corto(mm.tc?.monto || 0)}</div><div class="sub">${mm.tc?.n || 0} comprobante(s)</div></div>
       <div class="kpi"><div class="et">Este mes · efectivo</div><div class="val">${$$corto(mm.efectivo?.monto || 0)}</div><div class="sub">${mm.efectivo?.n || 0} comprobante(s)</div></div>
+      ${t.ahorro ? `<div class="kpi" title="Cada comprobante cargado en Shares con la app suma ${String(t.ahorro.minutos_por_comprobante).replace('.', ',')} min (se cambia en Configuración → Ajustes)"><div class="et">Tiempo ahorrado</div><div class="val">${fmtDuracion(t.ahorro.cargados_mes * t.ahorro.minutos_por_comprobante)}</div>
+        <div class="sub">este mes · ${fmtDuracion(t.ahorro.cargados_total * t.ahorro.minutos_por_comprobante)} desde el inicio<br>~${String(t.ahorro.minutos_por_comprobante).replace('.', ',')} min por comprobante cargado</div></div>` : ''}
     </div>
     <div class="dos">
       <div class="panel"><div class="panel-titulo"><h2>Conciliación de la tarjeta</h2><a class="btn btn-ghost btn-chico" href="#/resumenes">Ver resúmenes</a></div>
@@ -1111,6 +1156,17 @@ async function vistaComprobante(el, id) {
   await cuentas().catch(() => null);
   const r = await api('/api/comprobantes/' + id);
   pintarComprobante(el, r);
+  if (r.comprobante.estado === 'leyendo') {
+    const h = location.hash;
+    const mirar = async () => {
+      if (!el.isConnected || location.hash !== h) return;
+      const n = await api('/api/comprobantes/' + id).catch(() => null);
+      if (!el.isConnected || location.hash !== h) return;
+      if (n && n.comprobante.estado !== 'leyendo') { pintarComprobante(el, n); toast('Listo: ya se leyó'); return; }
+      setTimeout(mirar, 4000);
+    };
+    setTimeout(mirar, 4000);
+  }
 }
 
 function pintarComprobante(el, r) {
@@ -1143,6 +1199,7 @@ function pintarComprobante(el, r) {
         ${r.movimiento ? `<p class="small" style="margin:8px 0 0">${ICO.tarjeta} Conciliado con el consumo "${esc(r.movimiento.descripcion)}" del <a href="#/resumen/${r.movimiento.resumen_id}">resumen ${esc(r.movimiento.banco || '')} cierre ${fmtF(r.movimiento.fecha_cierre)}</a></p>` : ''}
         ${f.estado === 'rechazada' ? `<p class="small txt-neg">Rechazado: ${esc(f.rechazo_motivo || '')}</p>` : ''}
       </section>
+      ${f.estado === 'leyendo' ? `<section class="tarea"><div class="panel-titulo"><h2>Leyéndose con IA</h2><span class="cargando"></span></div><div class="cuerpo"><p class="small">Se está leyendo en segundo plano: en unos segundos aparecen los datos solos. Mientras tanto podés seguir con otra cosa.</p></div></section>` : ''}
       ${abiertas.length ? `<section class="tarea"><div class="panel-titulo"><h2>Qué falta</h2><span class="badge b-acc">${abiertas.length}</span></div><div class="cuerpo">
         ${abiertas.map(e => `<div class="excepcion ${e.severidad}"><div class="txt"><b>${esc(motivoT(e.codigo))}</b><br>${esc(e.mensaje)}</div>
           ${editable && !['CUENTA', 'SIN_CUIT', 'SIN_RAZON', 'SIN_TOTAL', 'SIN_FECHA', 'SIN_TIPO'].includes(e.codigo) && (e.severidad !== 'critica' || puede('admin')) ? `<button class="btn btn-chico" data-aceptar="${esc(e.codigo)}">${e.codigo === 'CUENTA_IA' ? 'Confirmar cuenta' : 'Aceptar igual'}</button>` : ''}</div>`).join('')}</div></section>`
@@ -1463,6 +1520,9 @@ const CFG_UI = [
     { k: 'tolerancia_total', tipo: 'numero', t: 'Diferencia aceptada en el total', d: 'Si neto + IVA + percepciones no da el total por más que esto, va a revisión.', pre: '$', step: 0.01 },
     { k: 'dias_antiguedad_aviso', tipo: 'numero', t: 'Aviso por comprobante viejo', d: 'Los comprobantes de hace más días que esto muestran un aviso.', suf: 'días', step: 1 },
     { k: 'arca_bloqueante', tipo: 'switch', t: 'Exigir la constatación de ARCA', d: 'Solo para facturas con CAE y si ARCA está conectado.' },
+  ] },
+  { t: 'Tiempo ahorrado', ico: 'clock', items: [
+    { k: 'minutos_ahorrados_comprobante', tipo: 'numero', t: 'Minutos que ahorra cada comprobante', d: 'Lo que se tardaba en cargarlo a mano en Shares menos lo que lleva con la app. Se usa para el contador del Inicio.', suf: 'min', step: 0.5 },
   ] },
   { t: 'Conciliación de la tarjeta', ico: 'tarjeta', items: [
     { k: 'dias_conciliacion', tipo: 'numero', t: 'Margen de días para cruzar', d: 'Días de diferencia aceptados entre la fecha del consumo y la del comprobante.', suf: 'días', step: 1 },
