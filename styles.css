@@ -162,7 +162,7 @@ textarea { min-height: 84px; resize: vertical; }
 .panel-titulo { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
 .panel-titulo h2 { font-size: 15px; }
 .panel-titulo .ayuda { margin: 0; }
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; margin-bottom: 16px; }
 .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--sh-1); padding: 16px 18px; text-decoration: none; display: block; min-width: 0; transition: transform .14s, box-shadow .14s, border-color .14s; }
 a.kpi:hover { transform: translateY(-2px); box-shadow: var(--sh-2); border-color: var(--line-strong); }
 .kpi .et { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .7px; font-weight: 700; }
@@ -699,3 +699,30 @@ div.linea-res { display: flex; margin: 4px 0; }
 .esc-sub > svg.i { width: 18px; height: 18px; flex: none; }
 .esc-sub > span { flex: 1; min-width: 160px; }
 .esc-sub.mal { background: var(--neg-bg); color: var(--neg); }
+
+/* ---- Tablas: se amoldan al ancho (sin desplazamiento lateral en la compu) y se ordenan por columna ---- */
+@media (min-width: 861px) {
+  th { white-space: normal; padding: 10px 10px; font-size: 11px; letter-spacing: .4px; line-height: 1.25; }
+  td { padding: 11px 10px; }
+  td .mono.largo { white-space: normal; overflow-wrap: anywhere; }
+  .sub-celda { white-space: normal; overflow-wrap: anywhere; }
+  td .prov { max-width: none; }
+  .prov b { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .tabla-wrap { overflow-x: visible; }
+}
+th.ordenable { cursor: pointer; user-select: none; }
+th.ordenable:hover { color: var(--text); }
+th.ordenable::after { content: '↕'; margin-left: 4px; opacity: .25; font-size: 10px; }
+th.ordenable[data-dir="desc"]::after { content: '↓'; opacity: .9; color: var(--accent-ink, var(--accent)); }
+th.ordenable[data-dir="asc"]::after { content: '↑'; opacity: .9; color: var(--accent-ink, var(--accent)); }
+/* Tablas en escritorio: las etiquetas y el número de comprobante pueden partirse en dos renglones para que no haya desplazamiento lateral */
+@media (min-width: 861px) { .chips { flex-wrap: wrap; } }
+/* Pantallas medianas (notebook chica): tabla más compacta y se oculta la columna Medio (se ve en el detalle) */
+@media (min-width: 861px) and (max-width: 1400px) {
+  th { padding: 9px 6px; } td { padding: 10px 6px; font-size: 13px; }
+  td .badge { font-size: 11.5px; padding: 2px 8px; white-space: normal; border-radius: 8px; max-width: 130px; }
+  td.mono { white-space: normal; } td.num { white-space: normal; } .celda-motivos { min-width: 140px; }
+  td.mono { white-space: normal; } td.num { white-space: normal; } .celda-motivos { min-width: 140px; }
+  .prov .cuad { display: none; } .prov b { white-space: normal; } .celda-cuenta small { max-width: 170px; }
+  .tabla-comps th:nth-child(3), .tabla-comps td:nth-child(3) { display: none; }
+}
