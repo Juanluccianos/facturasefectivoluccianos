@@ -609,7 +609,7 @@ async function vistaEscaneo() {
       ${esStandalone() ? '' : '<div class="esc-instalar" data-instalar></div>'}
       <h2 class="esc-h">Lo que cargaste</h2>
       <div id="esc-lista"><div class="vacio"><span class="cargando"></span></div></div>
-      <p class="esc-ver">versión 1.3.2</p>
+      <p class="esc-ver">versión 1.3.3</p>
     </main></div>`;
   $('#b-salir').onclick = () => salir();
   $('#b-tema').onclick = alternarTema;
@@ -1324,19 +1324,50 @@ function conectarComprobante(el, r, editable) {
 // ---------------------------------------------------------------------------
 async function vistaShares(el) {
   if (!puede('aprobador')) throw new Error('Necesitás rol aprobador.');
-  const r = await api('/api/comprobantes?estado=lista,error_shares&limite=500');
+  const [r] = await Promise.all([api('/api/comprobantes?estado=lista,error_shares&limite=500'), cuentas().catch(() => [])]);
   const sel = new Set(r.comprobantes.filter(c => c.estado === 'lista').map(c => c.id));
-  el.innerHTML = `<div class="encabezado"><div><h1>Enviar a Shares</h1><p>Efectivo va al proveedor 0 "No especificado" y tarjeta al 2186 "No especificado TC", con el CUIT y el nombre del comercio.</p></div></div>
+  const existe = (v) => !(S.cuentas || []).length || (S.cuentas || []).some(c => String(c.codigo_concepto) === String(v).trim());
+  el.innerHTML = `<div class="encabezado"><div><h1>Enviar a Shares</h1><p>Efectivo va al proveedor 0 "No especificado" y tarjeta al 2186 "No especificado TC", con el CUIT y el nombre del comercio. La cuenta de cada comprobante se puede modificar desde esta pantalla.</p></div>
+      <div class="acciones"><span class="lote-cuenta" id="lote"><input class="in-cuenta mono" list="dl-cuentas" id="lote-cta" placeholder="Cuenta para los seleccionados"><button class="btn btn-chico" id="b-lote">Cambiar cuenta</button></span></div></div>
+    ${datalistCuentas()}
     <div class="panel"><div class="tabla-wrap"><table><thead><tr><th style="width:32px"><input type="checkbox" id="chk-todo" checked></th><th>Comercio</th><th>Medio</th><th>Comprobante</th><th>Fecha</th><th>Cuenta</th><th class="num">Total</th></tr></thead><tbody>
     ${r.comprobantes.map(c => `<tr><td><input type="checkbox" data-id="${c.id}" ${sel.has(c.id) ? 'checked' : ''}></td>
       <td><a href="#/comprobante/${c.id}"><b>${esc(nombreProv(c))}</b></a>${c.estado === 'error_shares' ? ' <span class="badge b-error_shares">Error Shares</span>' : ''}</td><td>${badgeMedio(c.medio_pago)}</td>
-      <td class="mono">${esc(TIPOS[c.tipo_cbte_arca] || '')} ${nroCbteC(c)}</td><td class="mono">${fmtF(c.fecha_emision)}</td><td class="small">${esc(c.cuenta || '')} ${esc(c.cuenta_denominacion || '')}</td><td class="num"><b>${$$m(c.total)}</b></td></tr>`).join('') || '<tr><td colspan="7" class="vacio">No hay nada listo para enviar.</td></tr>'}
+      <td class="mono">${esc(TIPOS[c.tipo_cbte_arca] || '')} ${nroCbteC(c)}</td><td class="mono">${fmtF(c.fecha_emision)}</td><td class="td-cuenta"><input class="in-cuenta mono" list="dl-cuentas" data-cta="${c.id}" value="${esc(c.cuenta ?? '')}" placeholder="Cuenta" aria-label="Cuenta del comprobante #${c.id}"><small class="sub-celda" data-den="${c.id}">${esc(c.cuenta_denominacion || nombreCuenta(c.cuenta) || 'Sin cuenta')}</small></td><td class="num"><b>${$$m(c.total)}</b></td></tr>`).join('') || '<tr><td colspan="7" class="vacio">No hay nada listo para enviar.</td></tr>'}
     </tbody></table></div></div>
     ${r.comprobantes.length ? `<div class="barra-acciones"><div class="principal" id="tot-sel"></div><button class="btn btn-negro" id="b-env">${ICO.send}Enviar seleccionados</button></div>` : ''}<div id="res-env"></div>`;
   const pintarTot = () => { const s = r.comprobantes.filter(c => sel.has(c.id)); const t = $('#tot-sel'); if (t) t.innerHTML = `<b>${s.length}</b> seleccionado(s) · ${$$m(s.reduce((a, c) => a + (c.total || 0), 0))}`; };
   $$('[data-id]', el).forEach(ch => ch.onchange = () => { ch.checked ? sel.add(Number(ch.dataset.id)) : sel.delete(Number(ch.dataset.id)); pintarTot(); });
   const ct = $('#chk-todo'); if (ct) ct.onchange = () => { $$('[data-id]', el).forEach(ch => { ch.checked = ct.checked; ch.onchange(); }); };
   pintarTot();
+  // Cambio de cuenta desde la lista (uno por uno o para los seleccionados)
+  const cambiar = async (ids, cod) => {
+    const res = await api('/api/comprobantes/cuenta', { method: 'POST', body: { ids, codigo_concepto: Number(cod) } });
+    const mal = res.resultados.filter(x => !x.ok || x.estado !== 'lista');
+    ids.forEach(id => { const i = $(`[data-cta="${id}"]`); if (i) { i.value = cod; i.dataset.ant = cod; } const sd = $(`[data-den="${id}"]`); if (sd) sd.textContent = `${res.cuenta?.denominacion || nombreCuenta(cod)} · elegida`; });
+    toast(mal.length ? `Cuenta ${cod} guardada. ${mal.length} quedaron con observaciones.` : `Cuenta ${cod} guardada`, !!mal.length);
+    if (mal.length) { S.cnt = null; await vistaShares(el); }
+  };
+  $$('[data-cta]', el).forEach(inp => {
+    inp.onclick = (e) => e.stopPropagation();
+    inp.onfocus = () => { inp.dataset.ant = inp.value; };
+    inp.oninput = () => { const sd = $(`[data-den="${inp.dataset.cta}"]`); if (sd && inp.value && existe(inp.value)) sd.textContent = nombreCuenta(inp.value); };
+    inp.onchange = async () => {
+      const v = inp.value.trim();
+      if (!v || v === inp.dataset.ant) return;
+      if (!existe(v)) { toast(`La cuenta ${v} no está en el plan`, true); inp.value = inp.dataset.ant || ''; return; }
+      inp.disabled = true;
+      try { await cambiar([Number(inp.dataset.cta)], v); } catch (e) { toast(e.message, true); inp.value = inp.dataset.ant || ''; }
+      inp.disabled = false;
+    };
+  });
+  const bl = $('#b-lote');
+  if (bl) bl.onclick = () => conBoton(bl, async () => {
+    const v = $('#lote-cta').value.trim();
+    if (!sel.size) throw new Error('Seleccioná al menos un comprobante.');
+    if (!v || !existe(v)) throw new Error('Elegí una cuenta del plan.');
+    await cambiar([...sel], v);
+  });
   const be = $('#b-env');
   if (be) be.onclick = () => conBoton(be, async () => {
     if (!sel.size) throw new Error('Elegí al menos uno.');

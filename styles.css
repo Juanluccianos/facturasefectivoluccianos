@@ -726,3 +726,4 @@ th.ordenable[data-dir="asc"]::after { content: '↑'; opacity: .9; color: var(--
   .prov .cuad { display: none; } .prov b { white-space: normal; } .celda-cuenta small { max-width: 170px; }
   .tabla-comps th:nth-child(3), .tabla-comps td:nth-child(3) { display: none; }
 }
+.lote-cuenta .in-cuenta { width: 220px; }
