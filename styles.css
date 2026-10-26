@@ -727,3 +727,9 @@ th.ordenable[data-dir="asc"]::after { content: '↑'; opacity: .9; color: var(--
   .tabla-comps th:nth-child(3), .tabla-comps td:nth-child(3) { display: none; }
 }
 .lote-cuenta .in-cuenta { width: 220px; }
+
+/* Tablas con alto máximo (plan de cuentas, auditoría, vincular): scrollean adentro del panel.
+   Va al final para ganarle a ".tabla-wrap { overflow-x: visible }" de la compu, que dejaba
+   las filas "chorreando" fuera del panel. */
+.tabla-wrap.tabla-scroll { overflow: auto; overscroll-behavior: contain; }
+.tabla-scroll thead th { position: sticky; top: 0; z-index: 1; }

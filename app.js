@@ -508,7 +508,7 @@ async function adminConfig(el) {
 
 async function adminAuditoria(el) {
   const r = await api('/api/auditoria');
-  el.innerHTML = `<div class="tabla-wrap" style="max-height:65vh"><table><thead><tr><th>Cuándo</th><th>Quién</th><th>Entidad</th><th>Acción</th><th>Campo</th><th>Antes → Después</th></tr></thead><tbody>
+  el.innerHTML = `<div class="tabla-wrap tabla-scroll" style="max-height:65vh"><table><thead><tr><th>Cuándo</th><th>Quién</th><th>Entidad</th><th>Acción</th><th>Campo</th><th>Antes → Después</th></tr></thead><tbody>
     ${r.auditoria.map(a => `<tr><td class="small mono">${fmtFH(a.ts)}</td><td class="small">${esc(a.usuario)}</td><td class="small">${a.entidad === 'factura' ? `<a href="#/factura/${esc(a.entidad_id)}">factura #${esc(a.entidad_id)}</a>` : esc([a.entidad, a.entidad_id].filter(x => x != null && x !== '').join(' ') || '—')}</td><td class="small">${esc(a.accion)}</td><td class="small mono">${esc(a.campo || '')}</td><td class="small mono">${esc(String(a.valor_anterior ?? '').slice(0, 80))} → ${esc(String(a.valor_nuevo ?? '').slice(0, 80))}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
@@ -564,6 +564,8 @@ const MOTIVOS = {
   SIN_NUMERO: ['Falta el número', 'Cargá el punto de venta y el número.'],
   SIN_TOTAL: ['Falta el total', 'Cargá el total.'],
   CUADRE: ['No cierra', 'Neto + IVA + percepciones no da el total.'],
+  PERC_SIN_CUENTA: ['Percepción sin cuenta', 'No se encontró la cuenta de esa percepción: sincronizá el plan o avisale a Juan.'],
+  PERC_NO_GRAVADO: ['Percepción como no gravado', 'Va a la cuenta de percepción de la provincia como no gravado.'],
   IVA_ALICUOTA: ['IVA raro', 'El IVA no coincide con neto × alícuota.'],
   RECEPTOR: ['A nombre de otro', 'La factura A no está a nombre de Franchris.'],
   SIN_CREDITO_FISCAL: ['Sin crédito fiscal', 'B, C o tique a consumidor final.'],
@@ -1488,7 +1490,7 @@ async function modalVincular(movId, alTerminar) {
   const m = r.movimiento;
   modal(`<h2>Vincular comprobante</h2><p class="muted">Consumo: <b>${esc(m.descripcion)}</b> · ${fmtF(m.fecha)} · ${m.moneda === 'USD' ? 'USD ' + fmtNum.format(m.importe) : $$m(m.importe)}</p>
     <input id="q-vinc" placeholder="Filtrar por comercio o importe" style="margin-bottom:10px">
-    <div class="tabla-wrap" style="max-height:50vh"><table><tbody id="tb-vinc">${r.candidatos.map(c => `<tr class="click" data-c="${c.id}" data-txt="${esc((nombreProv(c) + ' ' + c.total).toLowerCase())}"><td>${badgeMedio(c.medio_pago)}</td><td><b>${esc(nombreProv(c))}</b><small class="sub-celda">#${c.id} · ${badgeEstado(c.estado)}</small></td><td class="mono">${fmtF(c.fecha_emision)}</td><td class="num"><b>${$$m(c.total)}</b></td></tr>`).join('') || '<tr><td class="vacio">No hay comprobantes sin vincular.</td></tr>'}</tbody></table></div>`, {
+    <div class="tabla-wrap tabla-scroll" style="max-height:50vh"><table><tbody id="tb-vinc">${r.candidatos.map(c => `<tr class="click" data-c="${c.id}" data-txt="${esc((nombreProv(c) + ' ' + c.total).toLowerCase())}"><td>${badgeMedio(c.medio_pago)}</td><td><b>${esc(nombreProv(c))}</b><small class="sub-celda">#${c.id} · ${badgeEstado(c.estado)}</small></td><td class="mono">${fmtF(c.fecha_emision)}</td><td class="num"><b>${$$m(c.total)}</b></td></tr>`).join('') || '<tr><td class="vacio">No hay comprobantes sin vincular.</td></tr>'}</tbody></table></div>`, {
     ancho: true,
     alMontar: (el, cerrar) => {
       $('#q-vinc', el).oninput = (e) => { const q = e.target.value.toLowerCase(); $$('#tb-vinc tr[data-c]', el).forEach(tr => tr.classList.toggle('hidden', !tr.dataset.txt.includes(q))); };
@@ -1526,14 +1528,24 @@ async function adminSalud(el) {
     ${fila(s.arca_cert && s.arca_modo !== 'off', 'ARCA (constatación de CAE)', `modo ${esc(s.arca_modo)} · certificado ${s.arca_cert ? 'cargado' : 'falta'} (opcional)`, s.arca_modo !== 'off' ? 'arca' : '')}
     ${fila(s.cuentas > 0, 'Plan de cuentas', `${s.cuentas} cuentas`)}
     ${fila(true, 'Comercios conocidos', `${s.comercios} (la app recuerda su cuenta)`)}
-  </tbody></table><p class="small muted">Versión ${esc(s.version)}</p>`;
+  </tbody></table><p class="small muted">Versión ${esc(s.version)}</p>
+  <div class="acciones" style="margin-top:12px"><button class="btn btn-chico" id="b-diag">Ver conceptos de Shares (diagnóstico)</button><button class="btn btn-chico hidden" id="b-diag-copiar">Copiar resultado</button></div>
+  <pre class="json hidden" id="diag" style="margin-top:10px"></pre>`;
+  const bd = $('#b-diag', el);
+  if (bd) bd.onclick = () => conBoton(bd, async () => {
+    const r = await api('/api/probar/shares-conceptos', { method: 'POST' });
+    const txt = JSON.stringify(r.diagnostico, null, 2);
+    const pre = $('#diag', el); pre.textContent = txt; pre.classList.remove('hidden');
+    const bc = $('#b-diag-copiar', el); bc.classList.remove('hidden');
+    bc.onclick = () => navigator.clipboard.writeText(txt).then(() => toast('Copiado')).catch(() => toast('No se pudo copiar: seleccionalo a mano', true));
+  });
   $$('[data-probar]', el).forEach(b => b.onclick = () => conBoton(b, async () => { const r = await api('/api/probar/' + b.dataset.probar, { method: 'POST' }); toast(r.mensaje); }));
 }
 async function adminCuentas(el) {
   const r = await api('/api/cuentas?todas=1');
   el.innerHTML = `<div class="acciones" style="margin-bottom:12px"><button class="btn btn-negro" id="b-sync">Sincronizar desde Shares</button><input id="qc" placeholder="Filtrar…" style="max-width:240px"></div>
     <p class="small muted">${r.cuentas.length} cuentas. Las tildadas aparecen como concepto de gasto y la IA las usa para sugerir.</p>
-    <div class="tabla-wrap" style="max-height:60vh"><table><thead><tr><th>Usar</th><th>Código</th><th>Denominación</th></tr></thead><tbody id="tbc">
+    <div class="tabla-wrap tabla-scroll" style="max-height:60vh"><table><thead><tr><th>Usar</th><th>Código</th><th>Denominación</th></tr></thead><tbody id="tbc">
     ${r.cuentas.map(c => `<tr data-txt="${esc((c.codigo_concepto + ' ' + c.denominacion).toLowerCase())}"><td><input type="checkbox" data-cta="${c.codigo_concepto}" ${c.usable_gasto ? 'checked' : ''}></td><td class="mono">${c.codigo_concepto}</td><td>${esc(c.denominacion)}</td></tr>`).join('')}</tbody></table></div>`;
   $('#qc', el).oninput = (e) => { const q = e.target.value.toLowerCase(); $$('#tbc tr', el).forEach(tr => tr.classList.toggle('hidden', !tr.dataset.txt.includes(q))); };
   $$('[data-cta]', el).forEach(c => c.onchange = () => api('/api/cuentas/' + c.dataset.cta, { method: 'PUT', body: { usable_gasto: c.checked } }).then(() => { S.cuentas = null; }).catch(e => toast(e.message, true)));
