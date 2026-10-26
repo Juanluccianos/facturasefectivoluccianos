@@ -1528,17 +1528,7 @@ async function adminSalud(el) {
     ${fila(s.arca_cert && s.arca_modo !== 'off', 'ARCA (constatación de CAE)', `modo ${esc(s.arca_modo)} · certificado ${s.arca_cert ? 'cargado' : 'falta'} (opcional)`, s.arca_modo !== 'off' ? 'arca' : '')}
     ${fila(s.cuentas > 0, 'Plan de cuentas', `${s.cuentas} cuentas`)}
     ${fila(true, 'Comercios conocidos', `${s.comercios} (la app recuerda su cuenta)`)}
-  </tbody></table><p class="small muted">Versión ${esc(s.version)}</p>
-  <div class="acciones" style="margin-top:12px"><button class="btn btn-chico" id="b-diag">Ver conceptos de Shares (diagnóstico)</button><button class="btn btn-chico hidden" id="b-diag-copiar">Copiar resultado</button></div>
-  <pre class="json hidden" id="diag" style="margin-top:10px"></pre>`;
-  const bd = $('#b-diag', el);
-  if (bd) bd.onclick = () => conBoton(bd, async () => {
-    const r = await api('/api/probar/shares-conceptos', { method: 'POST' });
-    const txt = JSON.stringify(r.diagnostico, null, 2);
-    const pre = $('#diag', el); pre.textContent = txt; pre.classList.remove('hidden');
-    const bc = $('#b-diag-copiar', el); bc.classList.remove('hidden');
-    bc.onclick = () => navigator.clipboard.writeText(txt).then(() => toast('Copiado')).catch(() => toast('No se pudo copiar: seleccionalo a mano', true));
-  });
+  </tbody></table><p class="small muted">Versión ${esc(s.version)}</p>`;
   $$('[data-probar]', el).forEach(b => b.onclick = () => conBoton(b, async () => { const r = await api('/api/probar/' + b.dataset.probar, { method: 'POST' }); toast(r.mensaje); }));
 }
 async function adminCuentas(el) {
