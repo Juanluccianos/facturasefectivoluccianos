@@ -587,6 +587,7 @@ function chipsExc(s, max = 2) {
   return `<div class="chips">${l.slice(0, max).map(([c, sev]) => `<span class="badge ${tono(sev)}">${esc(motivoT(c))}</span>`).join('')}${l.length > max ? `<span class="tag">+${l.length - max}</span>` : ''}</div>`;
 }
 const MEDIOS = { efectivo: 'Efectivo', tc: 'Tarjeta corporativa' };
+const quienCargo = (x) => x === 'viaticos' ? 'app Viáticos' : String(x || '').split('@')[0];
 const badgeMedio = (m, origen) => (origen === 'viatico' ? `<span class="badge b-viatico">Viático</span>` : '') + `<span class="badge ${m === 'tc' ? 'b-recibida' : 'b-warn'}">${m === 'tc' ? 'Tarjeta' : 'Efectivo'}</span>`;
 
 // ---------------------------------------------------------------------------
@@ -612,7 +613,7 @@ async function vistaEscaneo() {
       ${esStandalone() ? '' : '<div class="esc-instalar" data-instalar></div>'}
       <h2 class="esc-h">Lo que cargaste</h2>
       <div id="esc-lista"><div class="vacio"><span class="cargando"></span></div></div>
-      <p class="esc-ver">versión 1.4.0</p>
+      <p class="esc-ver">versión 1.4.1</p>
     </main></div>`;
   $('#b-salir').onclick = () => salir();
   $('#b-tema').onclick = alternarTema;
@@ -1133,7 +1134,7 @@ async function vistaLista(el, modo) {
     datos = r.comprobantes;
     $('#tb').innerHTML = datos.length ? datos.map(c => `<tr class="click" data-id="${c.id}">
       <td><div class="prov">${cuad(nombreProv(c))}<div><b>${esc(nombreProv(c))}</b><small class="mono">${c.cuit_emisor ? fmtCuit(c.cuit_emisor) + ' · ' : ''}#${c.id}</small></div></div></td>
-      <td>${badgeEstado(c.estado)}<small class="sub-celda">${fmtFH(c.creado_at)} · ${esc(String(c.creado_por || '').split('@')[0])}</small></td>
+      <td>${badgeEstado(c.estado)}<small class="sub-celda">${fmtFH(c.creado_at)} · ${esc(quienCargo(c.creado_por))}</small></td>
       <td>${badgeMedio(c.medio_pago, c.origen)}${c.viatico_supervisor ? `<small class="sub-celda">${esc(c.viatico_supervisor)}${c.viatico_destino ? ' · ' + esc(c.viatico_destino) : ''}</small>` : ''}${c.resumen_id ? `<small class="sub-celda">en resumen</small>` : ''}</td>
       <td class="mono">${esc(TIPOS[c.tipo_cbte_arca] || '')} ${nroCbteC(c)}</td>
       <td class="mono">${fmtF(c.fecha_emision)}</td>
@@ -1196,7 +1197,7 @@ function pintarComprobante(el, r) {
         <div class="fila1">${badgeEstado(f.estado)}${badgeMedio(f.medio_pago, f.origen)}<span class="tag">${f.origen === 'pdf' ? ICO.doc + 'PDF' : ICO.camara + 'Foto'}</span></div>
         <h2>${esc(nombre)}</h2>
         <div class="meta"><span class="mono">${fmtCuit(d.emisor?.cuit)}</span><span>${esc(TIPOS[c.tipo_arca] || 'Comprobante')} ${c.numero ? nroCbteC({ pto_vta: c.pto_vta, numero: c.numero }) : ''}</span>${c.fecha_emision ? `<span>${fmtF(c.fecha_emision)}</span>` : ''}
-          <span>Cargado por ${esc(String(f.creado_por || '').split('@')[0])} · ${fmtFH(f.creado_at)}</span>${f.shares_ref ? `<span>Ref. Shares <b class="mono">${esc(f.shares_ref)}</b></span>` : ''}</div>
+          <span>${f.creado_por === 'viaticos' ? 'Llegó de la app de Viáticos' : 'Cargado por ' + esc(quienCargo(f.creado_por))} · ${fmtFH(f.creado_at)}</span>${f.shares_ref ? `<span>Ref. Shares <b class="mono">${esc(f.shares_ref)}</b></span>` : ''}</div>
         <div class="total"><b>${im.total ? (c.moneda && c.moneda !== 'PES' ? esc(c.moneda) + ' ' : '') + $$m(im.total) : '—'}</b>
           <span class="tag">${ICO.users}Shares: proveedor ${esc(r.proveedor_shares ? r.proveedor_shares.codigo + ' · ' + r.proveedor_shares.nombre : '—')}</span></div>
         ${r.movimiento ? `<p class="small" style="margin:8px 0 0">${ICO.tarjeta} Conciliado con el consumo "${esc(r.movimiento.descripcion)}" del <a href="#/resumen/${r.movimiento.resumen_id}">resumen ${esc(r.movimiento.banco || '')} cierre ${fmtF(r.movimiento.fecha_cierre)}</a></p>` : ''}
