@@ -573,6 +573,7 @@ const MOTIVOS = {
   CUENTA: ['Falta la cuenta', 'Elegí el concepto de gasto.'],
   CUENTA_IA: ['Cuenta sugerida por IA', 'Confirmala o elegí otra.'],
   DUPLICADO: ['Duplicado', 'Ya está cargado: rechazá este.'],
+  VIATICO: ['Viático para revisar', 'Revisá los datos y la cuenta, y marcalo como revisado.'],
   ARCA_RECHAZADO: ['ARCA no lo reconoce', 'El CAE no corresponde: revisalo.'],
   ARCA_ERROR: ['ARCA no respondió', 'No se pudo constatar el CAE.'],
   ARCA_OBSERVADO: ['ARCA con observaciones', ''],
@@ -586,7 +587,7 @@ function chipsExc(s, max = 2) {
   return `<div class="chips">${l.slice(0, max).map(([c, sev]) => `<span class="badge ${tono(sev)}">${esc(motivoT(c))}</span>`).join('')}${l.length > max ? `<span class="tag">+${l.length - max}</span>` : ''}</div>`;
 }
 const MEDIOS = { efectivo: 'Efectivo', tc: 'Tarjeta corporativa' };
-const badgeMedio = (m) => `<span class="badge ${m === 'tc' ? 'b-recibida' : 'b-warn'}">${m === 'tc' ? 'Tarjeta' : 'Efectivo'}</span>`;
+const badgeMedio = (m, origen) => (origen === 'viatico' ? `<span class="badge b-viatico">Viático</span>` : '') + `<span class="badge ${m === 'tc' ? 'b-recibida' : 'b-warn'}">${m === 'tc' ? 'Tarjeta' : 'Efectivo'}</span>`;
 
 // ---------------------------------------------------------------------------
 //  Versión celular para el rol "escaneo": un botón grande y la lista de lo suyo
@@ -611,7 +612,7 @@ async function vistaEscaneo() {
       ${esStandalone() ? '' : '<div class="esc-instalar" data-instalar></div>'}
       <h2 class="esc-h">Lo que cargaste</h2>
       <div id="esc-lista"><div class="vacio"><span class="cargando"></span></div></div>
-      <p class="esc-ver">versión 1.3.4</p>
+      <p class="esc-ver">versión 1.4.0</p>
     </main></div>`;
   $('#b-salir').onclick = () => salir();
   $('#b-tema').onclick = alternarTema;
@@ -1100,7 +1101,7 @@ async function vistaInicio(el) {
         : '<div class="vacio">No hay resúmenes abiertos. Cuando llegue el de la tarjeta, subilo en "Resúmenes".</div>'}
         ${pend ? '' : ''}</div>
       <div class="panel"><div class="panel-titulo"><h2>Últimos cargados</h2><a class="btn btn-ghost btn-chico" href="#/comprobantes">Ver todos</a></div>
-        ${t.ultimos.length ? `<ul class="feed">${t.ultimos.map(c => `<li data-id="${c.id}" tabindex="0">${cuad(nombreProv(c))}<div style="min-width:0"><div class="t">${esc(nombreProv(c))}</div><div class="d">${badgeMedio(c.medio_pago)} ${fmtF(c.fecha_emision)}</div></div>
+        ${t.ultimos.length ? `<ul class="feed">${t.ultimos.map(c => `<li data-id="${c.id}" tabindex="0">${cuad(nombreProv(c))}<div style="min-width:0"><div class="t">${esc(nombreProv(c))}</div><div class="d">${badgeMedio(c.medio_pago, c.origen)} ${fmtF(c.fecha_emision)}</div></div>
           <div class="r"><b>${$$m(c.total)}</b>${badgeEstado(c.estado)}</div></li>`).join('')}</ul>` : '<div class="vacio">Todavía no se cargó nada.</div>'}</div>
     </div>`;
   $$('[data-c]', el).forEach(b => b.onclick = () => iniciarCarga(b.dataset.c));
@@ -1118,7 +1119,7 @@ async function vistaLista(el, modo) {
   el.innerHTML = `<div class="encabezado"><div><h1>${revisar ? 'Para revisar' : 'Todos los comprobantes'}</h1><p>${revisar ? 'Lo que necesita una persona: falta un dato, la cuenta o algo no cierra.' : 'Todo lo cargado, con el archivo original a un clic.'}</p></div>
       <div class="acciones">${revisar ? '' : `<button class="btn" id="b-csv">${ICO.doc}Exportar CSV</button>`}<button class="btn btn-negro" data-cargar2="pdf">${ICO.upload}Subir factura</button></div></div>
     <div class="panel"><div class="cola-bar"><label class="campo-buscar">${ICO.search}<input id="q" placeholder="Comercio, CUIT, número o #id" value="${esc(q0)}"></label>
-      <div class="seg" id="seg-medio" style="margin:0">${[['', 'Todos'], ['tc', 'Tarjeta'], ['efectivo', 'Efectivo']].map(([k, t]) => `<button data-m="${k}" class="${k === medio ? 'on' : ''}">${t}</button>`).join('')}</div>
+      <div class="seg" id="seg-medio" style="margin:0">${[['', 'Todos'], ['tc', 'Tarjeta'], ['efectivo', 'Efectivo'], ['viatico', 'Viáticos']].map(([k, t]) => `<button data-m="${k}" class="${k === medio ? 'on' : ''}">${t}</button>`).join('')}</div>
       ${revisar ? '' : `<select id="f-estado" style="max-width:200px"><option value="">Todos los estados</option>${Object.entries(ESTADOS).map(([k, v]) => `<option value="${k}" ${estado === k ? 'selected' : ''}>${v}</option>`).join('')}</select>`}</div>
       <div class="tabla-wrap"><table class="tabla-comps"><thead><tr><th>Comercio</th><th>Estado</th><th>Medio</th><th>Comprobante</th><th>Fecha</th><th class="num">Total</th><th>${revisar ? 'Qué falta' : 'Cuenta'}</th></tr></thead><tbody id="tb"><tr><td colspan="7" class="vacio"><span class="cargando"></span></td></tr></tbody></table></div></div>`;
   $$('[data-cargar2]', el).forEach(b => b.onclick = () => iniciarCarga(b.dataset.cargar2));
@@ -1133,7 +1134,7 @@ async function vistaLista(el, modo) {
     $('#tb').innerHTML = datos.length ? datos.map(c => `<tr class="click" data-id="${c.id}">
       <td><div class="prov">${cuad(nombreProv(c))}<div><b>${esc(nombreProv(c))}</b><small class="mono">${c.cuit_emisor ? fmtCuit(c.cuit_emisor) + ' · ' : ''}#${c.id}</small></div></div></td>
       <td>${badgeEstado(c.estado)}<small class="sub-celda">${fmtFH(c.creado_at)} · ${esc(String(c.creado_por || '').split('@')[0])}</small></td>
-      <td>${badgeMedio(c.medio_pago)}${c.resumen_id ? `<small class="sub-celda">en resumen</small>` : ''}</td>
+      <td>${badgeMedio(c.medio_pago, c.origen)}${c.viatico_supervisor ? `<small class="sub-celda">${esc(c.viatico_supervisor)}${c.viatico_destino ? ' · ' + esc(c.viatico_destino) : ''}</small>` : ''}${c.resumen_id ? `<small class="sub-celda">en resumen</small>` : ''}</td>
       <td class="mono">${esc(TIPOS[c.tipo_cbte_arca] || '')} ${nroCbteC(c)}</td>
       <td class="mono">${fmtF(c.fecha_emision)}</td>
       <td class="num"><b>${c.moneda && c.moneda !== 'PES' ? esc(c.moneda) + ' ' : ''}${$$m(c.total)}</b></td>
@@ -1192,7 +1193,7 @@ function pintarComprobante(el, r) {
     <div class="visor" id="visor"><div class="vacio"><span><span class="cargando"></span> Cargando…</span></div></div>
     <div class="lado">
       <section class="panel ficha">
-        <div class="fila1">${badgeEstado(f.estado)}${badgeMedio(f.medio_pago)}<span class="tag">${f.origen === 'foto' ? ICO.camara + 'Foto' : ICO.doc + 'PDF'}</span></div>
+        <div class="fila1">${badgeEstado(f.estado)}${badgeMedio(f.medio_pago, f.origen)}<span class="tag">${f.origen === 'pdf' ? ICO.doc + 'PDF' : ICO.camara + 'Foto'}</span></div>
         <h2>${esc(nombre)}</h2>
         <div class="meta"><span class="mono">${fmtCuit(d.emisor?.cuit)}</span><span>${esc(TIPOS[c.tipo_arca] || 'Comprobante')} ${c.numero ? nroCbteC({ pto_vta: c.pto_vta, numero: c.numero }) : ''}</span>${c.fecha_emision ? `<span>${fmtF(c.fecha_emision)}</span>` : ''}
           <span>Cargado por ${esc(String(f.creado_por || '').split('@')[0])} · ${fmtFH(f.creado_at)}</span>${f.shares_ref ? `<span>Ref. Shares <b class="mono">${esc(f.shares_ref)}</b></span>` : ''}</div>
@@ -1200,11 +1201,12 @@ function pintarComprobante(el, r) {
           <span class="tag">${ICO.users}Shares: proveedor ${esc(r.proveedor_shares ? r.proveedor_shares.codigo + ' · ' + r.proveedor_shares.nombre : '—')}</span></div>
         ${r.movimiento ? `<p class="small" style="margin:8px 0 0">${ICO.tarjeta} Conciliado con el consumo "${esc(r.movimiento.descripcion)}" del <a href="#/resumen/${r.movimiento.resumen_id}">resumen ${esc(r.movimiento.banco || '')} cierre ${fmtF(r.movimiento.fecha_cierre)}</a></p>` : ''}
         ${f.estado === 'rechazada' ? `<p class="small txt-neg">Rechazado: ${esc(f.rechazo_motivo || '')}</p>` : ''}
+        ${r.viatico ? `<div class="viatico-info"><b>Viático</b> · rendido por <b>${esc(r.viatico.supervisor || '—')}</b>${r.viatico.destino ? ' en ' + esc(r.viatico.destino) : ''}${r.viatico.fecha_rendicion ? ' · rendición ' + fmtF(r.viatico.fecha_rendicion) : ''}${r.viatico.categoria ? ' · ' + esc(r.viatico.categoria) : ''}${r.viatico.total_declarado ? ' · declaró ' + $$m(r.viatico.total_declarado) : ''}${r.viatico.observaciones ? `<br><span class="muted">${esc(r.viatico.observaciones)}</span>` : ''}</div>` : ''}
       </section>
       ${f.estado === 'leyendo' ? `<section class="tarea"><div class="panel-titulo"><h2>Leyéndose con IA</h2><span class="cargando"></span></div><div class="cuerpo"><p class="small">Se está leyendo en segundo plano: en unos segundos aparecen los datos solos. Mientras tanto podés seguir con otra cosa.</p></div></section>` : ''}
       ${abiertas.length ? `<section class="tarea"><div class="panel-titulo"><h2>Qué falta</h2><span class="badge b-acc">${abiertas.length}</span></div><div class="cuerpo">
         ${abiertas.map(e => `<div class="excepcion ${e.severidad}"><div class="txt"><b>${esc(motivoT(e.codigo))}</b><br>${esc(e.mensaje)}</div>
-          ${editable && !['CUENTA', 'SIN_CUIT', 'SIN_RAZON', 'SIN_TOTAL', 'SIN_FECHA', 'SIN_TIPO'].includes(e.codigo) && (e.severidad !== 'critica' || puede('admin')) ? `<button class="btn btn-chico" data-aceptar="${esc(e.codigo)}">${e.codigo === 'CUENTA_IA' ? 'Confirmar cuenta' : 'Aceptar igual'}</button>` : ''}</div>`).join('')}</div></section>`
+          ${editable && !['CUENTA', 'SIN_CUIT', 'SIN_RAZON', 'SIN_TOTAL', 'SIN_FECHA', 'SIN_TIPO'].includes(e.codigo) && (e.severidad !== 'critica' || puede('admin')) ? `<button class="btn btn-chico${e.codigo === 'VIATICO' ? ' btn-negro' : ''}" data-aceptar="${esc(e.codigo)}">${e.codigo === 'CUENTA_IA' ? 'Confirmar cuenta' : e.codigo === 'VIATICO' ? 'Marcar como revisado' : 'Aceptar igual'}</button>` : ''}</div>`).join('')}</div></section>`
       : f.estado === 'lista' ? `<section class="tarea bien"><div class="panel-titulo"><h2>Todo en orden</h2><span class="badge b-ok">Listo para Shares</span></div></section>` : ''}
       ${avisos.length ? `<section class="panel panel-pad small">${avisos.map(e => `<div class="con-ico muted">${ICO.info}${esc(e.mensaje)}</div>`).join('')}</section>` : ''}
       <section class="panel">
@@ -1217,7 +1219,7 @@ function pintarComprobante(el, r) {
             <div class="campo"><label>Concepto de gasto (cuenta)</label><input name="imputacion.codigo_concepto" list="dl-cuentas" class="mono" value="${esc(d.imputacion?.codigo_concepto || '')}" ${dis} placeholder="Buscá por código o nombre"></div>
             <div class="campo" style="grid-column: span 2"><label>Denominación</label><input id="den-cuenta" disabled value="${esc(r.cuenta?.denominacion || nombreCuenta(d.imputacion?.codigo_concepto))}"></div>
           </div>
-          <p class="ayuda">${d.imputacion?.origen ? 'Origen: <b>' + esc({ comercio: 'la misma que la vez anterior para este comercio', ia: 'sugerida por la IA — confirmala', manual: 'elegida por una persona' }[d.imputacion.origen] || d.imputacion.origen) + '</b>' + (d.imputacion.detalle && d.imputacion.origen !== 'comercio' ? ' · ' + esc(d.imputacion.detalle) : '') : 'Elegí la cuenta: la app la recuerda para la próxima vez de este comercio.'}${d.detalle_resumen ? ` · <b>Qué se compró:</b> ${esc(d.detalle_resumen)}` : ''}</p>
+          <p class="ayuda">${d.imputacion?.origen ? 'Origen: <b>' + esc({ comercio: 'la misma que la vez anterior para este comercio', ia: 'sugerida por la IA — confirmala', manual: 'elegida por una persona', viatico: 'cuenta predeterminada de viáticos' }[d.imputacion.origen] || d.imputacion.origen) + '</b>' + (d.imputacion.detalle && d.imputacion.origen !== 'comercio' ? ' · ' + esc(d.imputacion.detalle) : '') : 'Elegí la cuenta: la app la recuerda para la próxima vez de este comercio.'}${d.detalle_resumen ? ` · <b>Qué se compró:</b> ${esc(d.detalle_resumen)}` : ''}</p>
           <div class="campo"><label>Nota (opcional)</label><input id="nota" value="${esc(f.nota || '')}" ${dis} placeholder="Ej.: almuerzo con proveedores, viaje a CABA"></div>
         </div>
         <div class="seccion"><h3>Comercio</h3>
@@ -1316,6 +1318,7 @@ function conectarComprobante(el, r, editable) {
   $$('[data-aceptar]', el).forEach(bt => bt.onclick = async () => {
     const cod = bt.dataset.aceptar;
     if (cod === 'CUENTA_IA') { conBoton(bt, async () => { await guardar(); recargar(await api(`/api/comprobantes/${id}/aceptar`, { method: 'POST', body: { codigo: cod, comentario: 'Cuenta confirmada' } })); }); return; }
+    if (cod === 'VIATICO') { conBoton(bt, async () => { await guardar(); recargar(await api(`/api/comprobantes/${id}/aceptar`, { method: 'POST', body: { codigo: cod, comentario: 'Revisado' } })); }); return; }
     const comentario = await pedirTexto({ titulo: 'Aceptar igual', ayuda: `${motivoT(cod)}: queda registrado quién lo aceptó y por qué.`, boton: 'Aceptar' });
     if (comentario) conBoton(bt, async () => recargar(await api(`/api/comprobantes/${id}/aceptar`, { method: 'POST', body: { codigo: cod, comentario } })));
   });
@@ -1334,7 +1337,7 @@ async function vistaShares(el) {
     ${datalistCuentas()}
     <div class="panel"><div class="tabla-wrap"><table><thead><tr><th style="width:32px"><input type="checkbox" id="chk-todo" checked></th><th>Comercio</th><th>Medio</th><th>Comprobante</th><th>Fecha</th><th>Cuenta</th><th class="num">Total</th></tr></thead><tbody>
     ${r.comprobantes.map(c => `<tr><td><input type="checkbox" data-id="${c.id}" ${sel.has(c.id) ? 'checked' : ''}></td>
-      <td><a href="#/comprobante/${c.id}"><b>${esc(nombreProv(c))}</b></a>${c.estado === 'error_shares' ? ' <span class="badge b-error_shares">Error Shares</span>' : ''}</td><td>${badgeMedio(c.medio_pago)}</td>
+      <td><a href="#/comprobante/${c.id}"><b>${esc(nombreProv(c))}</b></a>${c.estado === 'error_shares' ? ' <span class="badge b-error_shares">Error Shares</span>' : ''}</td><td>${badgeMedio(c.medio_pago, c.origen)}</td>
       <td class="mono">${esc(TIPOS[c.tipo_cbte_arca] || '')} ${nroCbteC(c)}</td><td class="mono">${fmtF(c.fecha_emision)}</td><td class="td-cuenta"><input class="in-cuenta mono" list="dl-cuentas" data-cta="${c.id}" value="${esc(c.cuenta ?? '')}" placeholder="Cuenta" aria-label="Cuenta del comprobante #${c.id}"><small class="sub-celda" data-den="${c.id}">${esc(c.cuenta_denominacion || nombreCuenta(c.cuenta) || 'Sin cuenta')}</small></td><td class="num"><b>${$$m(c.total)}</b></td></tr>`).join('') || '<tr><td colspan="7" class="vacio">No hay nada listo para enviar.</td></tr>'}
     </tbody></table></div></div>
     ${r.comprobantes.length ? `<div class="barra-acciones"><div class="principal" id="tot-sel"></div><button class="btn btn-negro" id="b-env">${ICO.send}Enviar seleccionados</button></div>` : ''}<div id="res-env"></div>`;

@@ -127,6 +127,8 @@ main.entra { animation: entra .22s ease; }
 .b-cargada { background: var(--ink); color: var(--paper); }
 .b-error_shares, .b-critica, .b-rechazada { background: var(--neg-bg); color: var(--neg); }
 .b-aviso { background: var(--surface-2); color: var(--muted); }
+.b-viatico { background: var(--info-bg); color: var(--info); margin-right: 4px; }
+.viatico-info { margin-top: 10px; padding: 9px 12px; border-radius: var(--r-sm); background: var(--info-bg); color: var(--text); font-size: 13px; line-height: 1.5; }
 .tag svg.i { width: 13px; height: 13px; }
 .tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: var(--r-xs); border: 1px solid var(--line); color: var(--muted); background: var(--surface); white-space: nowrap; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
