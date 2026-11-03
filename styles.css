@@ -735,3 +735,8 @@ th.ordenable[data-dir="asc"]::after { content: '↑'; opacity: .9; color: var(--
    las filas "chorreando" fuera del panel. */
 .tabla-wrap.tabla-scroll { overflow: auto; overscroll-behavior: contain; }
 .tabla-scroll thead th { position: sticky; top: 0; z-index: 1; }
+
+/* Detalle: el Historial no se sale del cuadro de la derecha */
+.lado .tabla-wrap { overflow-x: auto; }
+.lado td { white-space: normal; overflow-wrap: anywhere; }
+.lado td.mono, .lado td .mono { white-space: normal; }
