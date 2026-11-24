@@ -205,8 +205,11 @@ async function salir(llamarApi = true) {
 
 // Llegada desde el portal: si ya tiene sesión entra al instante; si no, el portal le consigue una y lo devuelve
 async function canjearAcceso() {
-  if (location.hash === '#portal') {
-    history.replaceState(null, '', location.pathname + location.search + '');
+  // #portal o #portal=<ruta>: llega desde Herramientas (con la ruta a abrir, si vino del buscador o de un pendiente)
+  const mPortal = location.hash.match(/^#portal(?:=(.+))?$/);
+  if (mPortal) {
+    const destino = mPortal[1] ? decodeURIComponent(mPortal[1]) : '';
+    history.replaceState(null, '', location.pathname + location.search + destino);
     if (!S.token) { location.replace(PORTAL + '/#ir=' + ACCESO_APP); return 'redirigiendo'; }
     return;
   }
@@ -661,6 +664,14 @@ const ESTADO_SIMPLE = { leyendo: 'Leyendo con IA…', error_lectura: 'No se pudo
 const badgeSimple = (e) => `<span class="badge b-${e === 'rechazada' || e === 'error_lectura' ? 'rechazada' : e === 'cargada' ? 'cargada' : 'lista'}">${esc(ESTADO_SIMPLE[e] || e)}</span>`;
 
 async function vistaEscaneo() {
+  // Estilo pistacho del sistema unificado: dos botones grandes, fáciles de tocar en el celular
+  if (!document.getElementById('estilo-escaneo')) document.head.insertAdjacentHTML('beforeend', `<style id="estilo-escaneo">
+    .esc-botones { gap: 12px !important; }
+    .esc-boton { min-height: 168px !important; border: 0 !important; border-radius: 26px !important; background: #A8C686 !important; color: #1d2f0d !important; font: 800 18px/1.2 Manrope, sans-serif !important; box-shadow: 0 10px 28px rgba(79,122,40,.22) !important; transition: transform .15s cubic-bezier(.2,0,0,1) !important; }
+    .esc-boton:active { transform: scale(.97); }
+    .esc-boton svg { width: 42px !important; height: 42px !important; }
+    .esc-boton-2 { background: #1d2f0d !important; color: #A8C686 !important; box-shadow: 0 10px 28px rgba(29,47,13,.25) !important; }
+  </style>`);
   const nombre = String(S.user?.nombre || '').split(' ')[0];
   $('#app').innerHTML = `<div class="esc">
     <header class="esc-top"><img class="marca-m" src="logo-negro.png" alt="Lucciano's"><div style="flex:1"></div>
