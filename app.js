@@ -25,6 +25,8 @@ const ACCESO_APP = 'efectivo';
 // Transición: mientras sea true se puede seguir entrando con la clave vieja de Efectivo. Al terminar, pasarlo a false.
 const LOGIN_VIEJO = true;
 const esTokenViejo = (t) => /^[a-f0-9]{64}$/i.test(t || '');
+// Operativos con una sola app (supervisores, escaneo): sin botón para volver a Herramientas
+try { if (localStorage.getItem('herr_portal') === '0') document.head.insertAdjacentHTML('beforeend', '<style>[aria-label="Volver al portal"]{display:none!important}</style>'); } catch (e) { /* sin storage */ }
 
 const S = { token: null, user: null, arca: 'off', cuentas: null, pdfUrl: null, vista: null };
 try { S.token = localStorage.getItem('gastos_token'); } catch { /* sin storage */ }
@@ -219,6 +221,7 @@ async function canjearAcceso() {
     const r = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(r.error || 'No se pudo ingresar.');
     guardarToken(r.token);
+    try { localStorage.setItem('herr_portal', r.ve_portal === false ? '0' : '1'); } catch (e2) { /* sin storage */ }
   } catch (e) {
     setTimeout(() => toast(e.message.includes('fetch') ? 'No se pudo conectar para ingresar. Volvé a entrar desde el portal.' : e.message, true), 400);
   }
