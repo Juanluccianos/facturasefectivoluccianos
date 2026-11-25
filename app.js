@@ -39,7 +39,7 @@ const PORTAL = 'https://herramientas.luccianos.com.ar';
 const ACCESO_API = 'https://acceso-api.lucciano-viaticos.workers.dev';
 const ACCESO_APP = 'efectivo';
 // Transición: mientras sea true se puede seguir entrando con la clave vieja de Efectivo. Al terminar, pasarlo a false.
-const LOGIN_VIEJO = false;   // claves viejas apagadas (25/11): solo se entra desde el portal
+const LOGIN_VIEJO = true;
 const esTokenViejo = (t) => /^[a-f0-9]{64}$/i.test(t || '');
 // Operativos con una sola app (supervisores, escaneo): sin botón para volver a Herramientas
 try { if (localStorage.getItem('herr_portal') === '0') document.head.insertAdjacentHTML('beforeend', '<style>[aria-label="Volver al portal"]{display:none!important}</style>'); } catch (e) { /* sin storage */ }
@@ -259,6 +259,7 @@ async function salirViejo(llamarApi = true) {
 // ---------------------------------------------------------------------------
 const svgI = (p) => `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
 const ICO = {
+  local: svgI('<path d="M3 9.5 12 3l9 6.5"/><path d="M5 8.5V21h14V8.5"/><path d="M10 21v-6h4v6"/>'),
   home: svgI('<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>'),
   inbox: svgI('<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'),
   doc: svgI('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>'),
@@ -701,8 +702,9 @@ async function vistaEscaneo() {
       <a class="ibtn" href="${PORTAL}" title="Volver al portal" aria-label="Volver al portal">${svgI('<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>')}</a></header>
     <main class="esc-main">
       <h1>Hola, ${esc(nombre)}</h1>
-      <p class="muted">Sacale una foto al ticket o factura y listo: tesorería se encarga del resto.</p>
-      <div class="esc-botones">
+      <p class="muted">Elegí el local, sacale una foto al ticket o factura y listo: tesorería se encarga del resto.</p>
+      <div class="esc-local"><label for="esc-sel-local">${ICO.local}<span>Local</span></label><select id="esc-sel-local" class="sel-local"><option value="">Cargando locales…</option></select></div>
+      <div class="esc-botones" id="esc-botones">
         <label class="esc-boton">${ICO.tarjeta}<span>Ticket pagado<br>con tarjeta</span><input type="file" accept="image/*" class="esc-file" data-medio="tc"></label>
         <label class="esc-boton esc-boton-2">${ICO.coin}<span>Ticket pagado<br>en efectivo</span><input type="file" accept="image/*" class="esc-file" data-medio="efectivo"></label>
       </div>
@@ -710,14 +712,28 @@ async function vistaEscaneo() {
       ${esStandalone() ? '' : '<div class="esc-instalar" data-instalar></div>'}
       <h2 class="esc-h">Lo que cargaste</h2>
       <div id="esc-lista"><div class="vacio"><span class="cargando"></span></div></div>
-      <p class="esc-ver">versión 1.6.0</p>
+      <p class="esc-ver">versión 1.7.0</p>
     </main></div>`;
   $('#b-tema').onclick = alternarTema;
+  // 1.7.0: sin local elegido los botones no abren la cámara (el input queda deshabilitado)
+  const selLocal = $('#esc-sel-local');
+  const habilitar = () => {
+    const ok = !!Number(selLocal.value);
+    $$('.esc-file').forEach(inp => { inp.disabled = !ok; });
+    $('#esc-botones').classList.toggle('sin-local', !ok);
+    if (ok) guardarUltimoLocal(Number(selLocal.value));
+  };
+  locales().then(() => { selLocal.innerHTML = opcionesLocal(ultimoLocal()); habilitar(); })
+    .catch(e => { selLocal.innerHTML = '<option value="">No se pudo cargar la lista</option>'; toast(e.message, true); habilitar(); });
+  selLocal.onchange = habilitar;
+  habilitar();
+  $$('.esc-boton').forEach(b => b.addEventListener('click', () => { if (!Number(selLocal.value)) { toast('Primero elegí el local.', true); selLocal.focus(); } }));
   // El input va DENTRO del botón y lo toca la persona: es lo único 100% confiable en iPhone
   $$('.esc-file').forEach(inp => inp.addEventListener('change', () => {
     const f = inp.files && inp.files[0];
     const medio = inp.dataset.medio;
-    if (f) procesarFotoEscaneo(f, medio);
+    const localId = Number(selLocal.value);
+    if (f) procesarFotoEscaneo(f, medio, localId);
     setTimeout(() => { inp.value = ''; }, 0);
   }));
   montarInstalar($('#app'));
@@ -734,7 +750,7 @@ async function pintarMisComprobantes() {
     if (comprobantes.some(c => c.estado === 'leyendo')) pintarMisComprobantes._t = setTimeout(pintarMisComprobantes, 5000);
     cont.innerHTML = comprobantes.length
       ? `<ul class="esc-lista">${comprobantes.map(c => `<li><div><b>${esc(c.razon_social_emisor || 'Comprobante #' + c.id)}</b>
-          <small>${fmtFH(c.creado_at)} · ${c.medio_pago === 'tc' ? 'Tarjeta' : 'Efectivo'}${c.estado === 'rechazada' && c.rechazo_motivo ? ' · ' + esc(c.rechazo_motivo) : ''}</small></div>
+          <small>${fmtFH(c.creado_at)} · ${c.medio_pago === 'tc' ? 'Tarjeta' : 'Efectivo'}${c.local ? ' · ' + esc(c.local) : ''}${c.estado === 'rechazada' && c.rechazo_motivo ? ' · ' + esc(c.rechazo_motivo) : ''}</small></div>
           <div class="r">${c.total != null ? `<b>${$$m(c.total)}</b>` : ''}${badgeSimple(c.estado)}</div></li>`).join('')}</ul>`
       : '<p class="muted">Todavía no escaneaste nada.</p>';
   } catch (e) { cont.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
@@ -746,9 +762,10 @@ async function pintarMisComprobantes() {
 //  El servidor guarda el archivo y lo lee con Gemini por su cuenta.
 // ---------------------------------------------------------------------------
 const SUBIDAS = { cola: [], activa: false, n: 0 };
-function encolarSubida(blob, medio) {
+function encolarSubida(blob, medio, localId) {
   if (blob.size > 15e6) { toast('La foto es muy pesada (más de 15 MB).', true); return; }
-  SUBIDAS.cola.push({ k: ++SUBIDAS.n, blob, medio, estado: 'subiendo', at: Date.now() });
+  if (!localId) { toast('Elegí el local antes de sacar la foto.', true); return; }
+  SUBIDAS.cola.push({ k: ++SUBIDAS.n, blob, medio, localId, estado: 'subiendo', at: Date.now() });
   avisarSubidas();
   procesarSubidas();
 }
@@ -761,7 +778,7 @@ async function procesarSubidas() {
       if (!it) break;
       try {
         const a = await prepararArchivo(it.blob, it.blob.type || 'image/jpeg');
-        const r = await api('/api/comprobantes', { method: 'POST', body: { medio_pago: it.medio, archivo_b64: a.b64, mime: a.mime, nombre: 'ticket.jpg', qr_texto: a.qr_texto } });
+        const r = await api('/api/comprobantes', { method: 'POST', body: { medio_pago: it.medio, local_id: it.localId, archivo_b64: a.b64, mime: a.mime, nombre: 'ticket.jpg', qr_texto: a.qr_texto } });
         it.estado = 'ok'; it.cid = r.comprobante.id; it.blob = null;
         if (S.user?.rol !== 'escaneo') toast(`Ticket #${it.cid} recibido: se está leyendo solo`);
       } catch (e) { it.estado = 'error'; it.error = e.message; }
@@ -787,13 +804,13 @@ function pintarSubidas(c) {
   $$('[data-desc]', c).forEach(b => b.onclick = () => descartarSubida(Number(b.dataset.desc)));
 }
 
-function procesarFotoEscaneo(f, medio) {
+function procesarFotoEscaneo(f, medio, localId) {
   const img = new Image();
   img.onload = () => {
-    try { montarEscaner(img, (blob) => { encolarSubida(blob, medio); toast('Listo: se sube sola. Podés sacar la siguiente.'); }, () => toast('Tocá de nuevo el botón para sacar otra foto.')); }
-    catch (e) { $('#scanner')?.remove(); encolarSubida(f, medio); }
+    try { montarEscaner(img, (blob) => { encolarSubida(blob, medio, localId); toast(`Listo (${nombreLocal(localId)}): se sube sola. Podés sacar la siguiente.`); }, () => toast('Tocá de nuevo el botón para sacar otra foto.')); }
+    catch (e) { $('#scanner')?.remove(); encolarSubida(f, medio, localId); }
   };
-  img.onerror = () => encolarSubida(f, medio);   // si no la puede mostrar, la manda igual
+  img.onerror = () => encolarSubida(f, medio, localId);   // si no la puede mostrar, la manda igual
   img.src = URL.createObjectURL(f);
 }
 
@@ -960,14 +977,42 @@ document.addEventListener('keydown', (e) => {
 // ---------------------------------------------------------------------------
 //  Carga: medio de pago → foto (escáner) o PDF → se lee sola
 // ---------------------------------------------------------------------------
-function elegirMedio(titulo = '¿Cómo se pagó?') {
+// ---- Locales (1.7.0): la lista es la de Viáticos. Se elige al escanear, así nadie tiene que acordarse
+// de qué local era el ticket mientras la IA lo lee. El último elegido queda marcado en esta sesión. ----
+async function locales(forzar = false) {
+  if (!S.locales || forzar) S.locales = (await api('/api/locales')).locales || [];
+  return S.locales;
+}
+const LOCAL_KEY = 'ef_local';
+function ultimoLocal() { try { return Number(sessionStorage.getItem(LOCAL_KEY)) || null; } catch { return null; } }
+function guardarUltimoLocal(id) { try { sessionStorage.setItem(LOCAL_KEY, String(id)); } catch { /* sin storage */ } }
+const nombreLocal = (id) => (S.locales || []).find(l => l.id === Number(id))?.nombre || '';
+function opcionesLocal(sel) {
+  return `<option value="">Elegí el local…</option>` + (S.locales || []).map(l => `<option value="${l.id}" ${Number(sel) === l.id ? 'selected' : ''}>${esc(l.nombre)}</option>`).join('');
+}
+const tagLocal = (nombre) => nombre ? `<span class="tag tag-local">${ICO.local}${esc(nombre)}</span>` : '';
+
+// Antes de cargar: el local (obligatorio) y, si no vino, cómo se pagó. Devuelve { medio, local_id } o null.
+async function elegirMedio(titulo = '¿Cómo se pagó?', { medio: medioFijo = null } = {}) {
+  try { await locales(); } catch (e) { toast(e.message, true); return null; }
   return new Promise((resolve) => {
     let listo = false;
-    modal(`<h2>${esc(titulo)}</h2>${S.user?.rol === 'escaneo' ? '' : '<p class="muted">Define a qué proveedor va en Shares: efectivo → "No especificado" · tarjeta → "No especificado TC".</p>'}
-      <div class="medios"><button class="medio" data-m="tc">${ICO.tarjeta}<b>Tarjeta corporativa</b>${S.user?.rol === 'escaneo' ? '' : '<small>No especificado TC (2186)</small>'}</button>
-      <button class="medio" data-m="efectivo">${ICO.coin}<b>Efectivo</b>${S.user?.rol === 'escaneo' ? '' : '<small>No especificado (0)</small>'}</button></div>`, {
+    const escaneo = S.user?.rol === 'escaneo';
+    modal(`<h2>${esc(medioFijo ? '¿De qué local es?' : titulo)}</h2>
+      <div class="campo" style="margin:10px 0 4px"><label for="sel-local">Local</label><select id="sel-local" class="sel-local">${opcionesLocal(ultimoLocal())}</select></div>
+      <p class="small muted" id="local-aviso" style="min-height:1.2em;margin:4px 0 6px"></p>
+      ${medioFijo ? `<div class="acciones" style="justify-content:flex-end"><button class="btn btn-acento" data-m="${esc(medioFijo)}">Continuar</button></div>`
+      : `${escaneo ? '' : '<p class="muted">Define a qué proveedor va en Shares: efectivo → "No especificado" · tarjeta → "No especificado TC".</p>'}
+      <div class="medios"><button class="medio" data-m="tc">${ICO.tarjeta}<b>Tarjeta corporativa</b>${escaneo ? '' : '<small>No especificado TC (2186)</small>'}</button>
+      <button class="medio" data-m="efectivo">${ICO.coin}<b>Efectivo</b>${escaneo ? '' : '<small>No especificado (0)</small>'}</button></div>`}`, {
       alMontar: (el, cerrar) => {
-        $$('[data-m]', el).forEach(b => b.onclick = () => { listo = true; cerrar(); resolve(b.dataset.m); });
+        const sel = $('#sel-local', el);
+        $$('[data-m]', el).forEach(b => b.onclick = () => {
+          const localId = Number(sel.value);
+          if (!localId) { $('#local-aviso', el).textContent = 'Elegí el local antes de seguir.'; sel.focus(); return; }
+          guardarUltimoLocal(localId);
+          listo = true; cerrar(); resolve({ medio: b.dataset.m, local_id: localId });
+        });
         const obs = new MutationObserver(() => { if ($('#modal').hidden) { obs.disconnect(); if (!listo) resolve(null); } });
         obs.observe($('#modal'), { attributes: true });
       },
@@ -976,10 +1021,12 @@ function elegirMedio(titulo = '¿Cómo se pagó?') {
 }
 
 async function iniciarCarga(tipo, opciones = {}) {
-  const medio = opciones.medio || await elegirMedio();
-  if (!medio) return;
+  const el = await elegirMedio('¿Cómo se pagó?', { medio: opciones.medio || null });
+  if (!el) return;
+  const { medio, local_id } = el;
+  opciones = { ...opciones, local_id };
   if (tipo === 'foto') {
-    if (!opciones.movimiento_id && !opciones.alTerminar) return abrirEscaner((blob) => { encolarSubida(blob, medio); toast('Subiendo en segundo plano: podés escanear el siguiente.'); });
+    if (!opciones.movimiento_id && !opciones.alTerminar) return abrirEscaner((blob) => { encolarSubida(blob, medio, local_id); toast(`Subiendo en segundo plano (${nombreLocal(local_id)}): podés escanear el siguiente.`); });
     return abrirEscaner((blob) => subirComprobantes([{ blob, nombre: 'ticket.jpg', mime: 'image/jpeg' }], medio, opciones));
   }
   pedirArchivos({ accept: 'application/pdf,image/*', multiple: !opciones.movimiento_id },
@@ -1084,7 +1131,7 @@ async function subirComprobantes(archivos, medio, opciones = {}) {
     try {
       const arch = await prepararArchivo(a.blob, a.mime);
       if (arch.b64.length * 0.75 > 15e6) throw new Error('supera 15 MB');
-      const r = await api('/api/comprobantes', { method: 'POST', body: { medio_pago: medio, archivo_b64: arch.b64, mime: arch.mime, nombre: a.nombre, qr_texto: arch.qr_texto, movimiento_id: opciones.movimiento_id || null } });
+      const r = await api('/api/comprobantes', { method: 'POST', body: { medio_pago: medio, local_id: opciones.local_id, archivo_b64: arch.b64, mime: arch.mime, nombre: a.nombre, qr_texto: arch.qr_texto, movimiento_id: opciones.movimiento_id || null } });
       ultimo = r.comprobante.id;
       linea.className = 'linea-res bien';
       linea.innerHTML = `${ICO.check}<span>${esc(r.datos?.emisor?.razon_social || a.nombre)} · ${$$m(r.datos?.importes?.total)} → <a href="#/comprobante/${r.comprobante.id}">#${r.comprobante.id}</a> ${badgeEstado(r.comprobante.estado)}</span>`;
@@ -1300,12 +1347,15 @@ async function vistaInicio(el) {
 async function vistaLista(el, modo) {
   const revisar = modo === 'revisar';
   let medio = sessionStorage.getItem('cmp_medio') || '';
+  let localF = sessionStorage.getItem('cmp_local') || '';
+  await locales().catch(() => []);
   let estado = revisar ? 'excepcion,error_lectura,leyendo,pendiente_lectura' : (sessionStorage.getItem('cmp_estado') || '');
   const q0 = sessionStorage.getItem('cmp_q') || ''; sessionStorage.removeItem('cmp_q');
   el.innerHTML = `<div class="encabezado"><div><h1>${revisar ? 'Para revisar' : 'Todos los comprobantes'}</h1><p>${revisar ? 'Lo que necesita una persona: falta un dato, la cuenta o algo no cierra.' : 'Todo lo cargado, con el archivo original a un clic.'}</p></div>
       <div class="acciones">${revisar ? '' : `<button class="btn" id="b-csv">${ICO.doc}Exportar CSV</button>`}<button class="btn btn-negro" data-cargar2="pdf">${ICO.upload}Subir factura</button></div></div>
     <div class="panel"><div class="cola-bar"><label class="campo-buscar">${ICO.search}<input id="q" placeholder="Comercio, CUIT, número o #id" value="${esc(q0)}"></label>
       <div class="seg" id="seg-medio" style="margin:0">${[['', 'Todos'], ['tc', 'Tarjeta'], ['efectivo', 'Efectivo'], ['viatico', 'Viáticos']].map(([k, t]) => `<button data-m="${k}" class="${k === medio ? 'on' : ''}">${t}</button>`).join('')}</div>
+      <select id="f-local" style="max-width:200px" aria-label="Local"><option value="">Todos los locales</option>${(S.locales || []).map(l => `<option value="${l.id}" ${String(l.id) === localF ? 'selected' : ''}>${esc(l.nombre)}</option>`).join('')}</select>
       ${revisar ? '' : `<select id="f-estado" style="max-width:200px"><option value="">Todos los estados</option>${Object.entries(ESTADOS).map(([k, v]) => `<option value="${k}" ${estado === k ? 'selected' : ''}>${v}</option>`).join('')}</select>`}</div>
       <div class="tabla-wrap"><table class="tabla-comps"><thead><tr><th>Comercio</th><th>Estado</th><th>Medio</th><th>Comprobante</th><th>Fecha</th><th class="num">Total</th><th>${revisar ? 'Qué falta' : 'Cuenta'}</th></tr></thead><tbody id="tb"><tr><td colspan="7" class="vacio"><span class="cargando"></span></td></tr></tbody></table></div></div>`;
   $$('[data-cargar2]', el).forEach(b => b.onclick = () => iniciarCarga(b.dataset.cargar2));
@@ -1314,13 +1364,14 @@ async function vistaLista(el, modo) {
     const p = new URLSearchParams({ limite: 300 });
     if (estado) p.set('estado', estado);
     if (medio) p.set('medio', medio);
+    if (localF) p.set('local', localF);
     if ($('#q').value.trim()) p.set('q', $('#q').value.trim());
     const r = await api('/api/comprobantes?' + p);
     datos = r.comprobantes;
     $('#tb').innerHTML = datos.length ? datos.map(c => `<tr class="click" data-id="${c.id}">
-      <td><div class="prov">${cuad(nombreProv(c))}<div><b>${esc(nombreProv(c))}</b><small class="mono">${c.cuit_emisor ? fmtCuit(c.cuit_emisor) + ' · ' : ''}#${c.id}</small></div></div></td>
+      <td><div class="prov">${cuad(nombreProv(c))}<div><b>${esc(nombreProv(c))}</b><small class="mono">${c.cuit_emisor ? fmtCuit(c.cuit_emisor) + ' · ' : ''}#${c.id}</small>${c.local ? `<small class="sub-local">${ICO.local}${esc(c.local)}</small>` : ''}</div></div></td>
       <td>${badgeEstado(c.estado)}<small class="sub-celda">${fmtFH(c.creado_at)} · ${esc(quienCargo(c.creado_por))}</small></td>
-      <td>${badgeMedio(c.medio_pago, c.origen)}${c.viatico_supervisor ? `<small class="sub-celda">${esc(c.viatico_supervisor)}${c.viatico_destino ? ' · ' + esc(c.viatico_destino) : ''}</small>` : ''}${c.resumen_id ? `<small class="sub-celda">en resumen</small>` : ''}</td>
+      <td>${badgeMedio(c.medio_pago, c.origen)}${c.viatico_supervisor ? `<small class="sub-celda">${esc(c.viatico_supervisor)}${c.viatico_destino && c.viatico_destino !== c.local ? ' · ' + esc(c.viatico_destino) : ''}</small>` : ''}${c.resumen_id ? `<small class="sub-celda">en resumen</small>` : ''}</td>
       <td class="mono">${esc(TIPOS[c.tipo_cbte_arca] || '')} ${nroCbteC(c)}</td>
       <td class="mono">${fmtF(c.fecha_emision)}</td>
       <td class="num"><b>${c.moneda && c.moneda !== 'PES' ? esc(c.moneda) + ' ' : ''}${$$m(c.total)}</b></td>
@@ -1331,6 +1382,7 @@ async function vistaLista(el, modo) {
   let t0; $('#q').oninput = () => { clearTimeout(t0); t0 = setTimeout(cargar, 300); };
   $$('#seg-medio button').forEach(b => b.onclick = () => { medio = b.dataset.m; sessionStorage.setItem('cmp_medio', medio); $$('#seg-medio button').forEach(x => x.classList.toggle('on', x === b)); cargar(); });
   const fe = $('#f-estado'); if (fe) fe.onchange = () => { estado = fe.value; sessionStorage.setItem('cmp_estado', estado); cargar(); };
+  const fl = $('#f-local'); if (fl) fl.onchange = () => { localF = fl.value; sessionStorage.setItem('cmp_local', localF); cargar(); };
   const bc = $('#b-csv'); if (bc) bc.onclick = () => descargarCsv(`comprobantes_${new Date().toISOString().slice(0, 10)}.csv`, [
     ['ID', 'Estado', 'Medio', 'CUIT', 'Comercio', 'Tipo', 'Número', 'Fecha', 'Moneda', 'Total', 'Cuenta', 'Denominación', 'Ref. Shares', 'Cargado por', 'Cargado'],
     ...datos.map(c => [c.id, ESTADOS[c.estado] || c.estado, MEDIOS[c.medio_pago], c.cuit_emisor || '', c.razon_social_emisor || '', TIPOS[c.tipo_cbte_arca] || '', nroCbteC(c), c.fecha_emision || '', c.moneda || 'PES', String(c.total ?? '').replace('.', ','), c.cuenta || '', c.cuenta_denominacion || '', c.shares_ref || '', c.creado_por || '', c.creado_at || '']),
@@ -1342,7 +1394,7 @@ async function vistaLista(el, modo) {
 //  Detalle de un comprobante
 // ---------------------------------------------------------------------------
 async function vistaComprobante(el, id) {
-  await cuentas().catch(() => null);
+  await Promise.all([cuentas().catch(() => null), locales().catch(() => null)]);
   const r = await api('/api/comprobantes/' + id);
   pintarComprobante(el, r);
   if (r.comprobante.estado === 'leyendo') {
@@ -1379,7 +1431,7 @@ function pintarComprobante(el, r) {
     <div class="visor" id="visor"><div class="vacio"><span><span class="cargando"></span> Cargando…</span></div></div>
     <div class="lado">
       <section class="panel ficha">
-        <div class="fila1">${badgeEstado(f.estado)}${badgeMedio(f.medio_pago, f.origen)}<span class="tag">${f.origen === 'pdf' ? ICO.doc + 'PDF' : ICO.camara + 'Foto'}</span></div>
+        <div class="fila1">${badgeEstado(f.estado)}${badgeMedio(f.medio_pago, f.origen)}${tagLocal(f.local)}<span class="tag">${f.origen === 'pdf' ? ICO.doc + 'PDF' : ICO.camara + 'Foto'}</span></div>
         <h2>${esc(nombre)}</h2>
         <div class="meta"><span class="mono">${fmtCuit(d.emisor?.cuit)}</span><span>${esc(TIPOS[c.tipo_arca] || 'Comprobante')} ${c.numero ? nroCbteC({ pto_vta: c.pto_vta, numero: c.numero }) : ''}</span>${c.fecha_emision ? `<span>${fmtF(c.fecha_emision)}</span>` : ''}
           <span>${f.creado_por === 'viaticos' ? 'Llegó de la app de Viáticos' : 'Cargado por ' + esc(quienCargo(f.creado_por))} · ${fmtFH(f.creado_at)}</span>${f.shares_ref ? `<span>Ref. Shares <b class="mono">${esc(f.shares_ref)}</b></span>` : ''}</div>
@@ -1401,6 +1453,7 @@ function pintarComprobante(el, r) {
       <form id="f-datos" class="tab" data-tab="datos" autocomplete="off">
         <div class="seccion"><h3>Pago y concepto</h3>
           <div class="fila"><div class="campo"><label>Medio de pago</label><div class="seg" id="seg-medio" style="margin:0">${[['tc', 'Tarjeta corporativa'], ['efectivo', 'Efectivo']].map(([k, t]) => `<button type="button" data-m="${k}" class="${f.medio_pago === k ? 'on' : ''}" ${dis}>${t}</button>`).join('')}</div></div></div>
+          <div class="fila"><div class="campo"><label for="det-local">Local</label><select id="det-local" ${dis}>${opcionesLocal(f.local_id).replace('Elegí el local…', f.local && !f.local_id ? esc(f.local) : 'Sin local')}</select></div></div>
           ${datalistCuentas()}
           <div class="fila">
             <div class="campo"><label>Concepto de gasto (cuenta)</label><input name="imputacion.codigo_concepto" list="dl-cuentas" class="mono" value="${esc(d.imputacion?.codigo_concepto || '')}" ${dis} placeholder="Buscá por código o nombre"></div>
@@ -1489,7 +1542,8 @@ function conectarComprobante(el, r, editable) {
     d.importes.exento = 0;
     d.comprobante.cotizacion = numAR(d.comprobante.cotizacion) || null;
     for (const k of ['tipo_arca', 'pto_vta', 'numero']) d.comprobante[k] = d.comprobante[k] === null || d.comprobante[k] === '' ? null : Number(String(d.comprobante[k]).replace(/\D/g, ''));
-    return api('/api/comprobantes/' + id, { method: 'PUT', body: { datos: d, medio_pago: medio, nota: $('#nota').value } });
+    const loc = Number($('#det-local')?.value) || undefined;
+    return api('/api/comprobantes/' + id, { method: 'PUT', body: { datos: d, medio_pago: medio, nota: $('#nota').value, ...(loc && loc !== Number(f.local_id) ? { local_id: loc } : {}) } });
   };
   const b = (sel, fn) => { const x = $(sel); if (x) x.onclick = () => conBoton(x, fn); };
   b('#b-ok', async () => { const n = await guardar(); recargar(n); toast(n.comprobante.estado === 'lista' ? 'Guardado: quedó listo para Shares' : 'Guardado: todavía falta algo'); });
@@ -1524,7 +1578,7 @@ async function vistaShares(el) {
     ${datalistCuentas()}
     <div class="panel"><div class="tabla-wrap"><table><thead><tr><th style="width:32px"><input type="checkbox" id="chk-todo" checked></th><th>Comercio</th><th>Medio</th><th>Comprobante</th><th>Fecha</th><th>Cuenta</th><th class="num">Total</th></tr></thead><tbody>
     ${r.comprobantes.map(c => `<tr><td><input type="checkbox" data-id="${c.id}" ${sel.has(c.id) ? 'checked' : ''}></td>
-      <td><a href="#/comprobante/${c.id}"><b>${esc(nombreProv(c))}</b></a>${c.estado === 'error_shares' ? ' <span class="badge b-error_shares">Error Shares</span>' : ''}</td><td>${badgeMedio(c.medio_pago, c.origen)}</td>
+      <td><a href="#/comprobante/${c.id}"><b>${esc(nombreProv(c))}</b></a>${c.estado === 'error_shares' ? ' <span class="badge b-error_shares">Error Shares</span>' : ''}</td><td>${badgeMedio(c.medio_pago, c.origen)}${c.local ? `<small class="sub-celda sub-local">${ICO.local}${esc(c.local)}</small>` : ''}</td>
       <td class="mono">${esc(TIPOS[c.tipo_cbte_arca] || '')} ${nroCbteC(c)}</td><td class="mono">${fmtF(c.fecha_emision)}</td><td class="td-cuenta"><input class="in-cuenta mono" list="dl-cuentas" data-cta="${c.id}" value="${esc(c.cuenta ?? '')}" placeholder="Cuenta" aria-label="Cuenta del comprobante #${c.id}"><small class="sub-celda" data-den="${c.id}">${esc(c.cuenta_denominacion || nombreCuenta(c.cuenta) || 'Sin cuenta')}</small></td><td class="num"><b>${$$m(c.total)}</b></td></tr>`).join('') || '<tr><td colspan="7" class="vacio">No hay nada listo para enviar.</td></tr>'}
     </tbody></table></div></div>
     ${r.comprobantes.length ? `<div class="barra-acciones"><div class="principal" id="tot-sel"></div><button class="btn btn-negro" id="b-env">${ICO.send}Enviar seleccionados</button></div>` : ''}<div id="res-env"></div>`;
