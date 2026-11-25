@@ -74,7 +74,7 @@ const fmtFH = (s) => {
 const nroCbte = (f) => (f.pto_vta != null && f.numero != null) ? `${String(f.pto_vta).padStart(5, '0')}-${String(f.numero).padStart(8, '0')}` : '—';
 const fmtCuit = (c) => { c = String(c || ''); return c.length === 11 ? `${c.slice(0, 2)}-${c.slice(2, 10)}-${c.slice(10)}` : (c || '—'); };
 const TIPOS = { 1: 'FA', 2: 'ND A', 3: 'NC A', 6: 'FB', 7: 'ND B', 8: 'NC B', 11: 'FC', 12: 'ND C', 13: 'NC C', 51: 'FM', 52: 'ND M', 53: 'NC M', 201: 'FCE A', 202: 'ND FCE A', 203: 'NC FCE A', 206: 'FCE B', 207: 'ND FCE B', 208: 'NC FCE B', 211: 'FCE C', 212: 'ND FCE C', 213: 'NC FCE C', 17: 'LSP A', 18: 'LSP B', 81: 'TFA', 82: 'TFB', 83: 'Tique' };
-const ESTADOS = { leyendo: 'Leyendo', error_lectura: 'No se pudo leer', excepcion: 'Para revisar', lista: 'Lista para Shares', cargada: 'Cargada en Shares', error_shares: 'Error Shares', rechazada: 'Rechazada' };
+const ESTADOS = { leyendo: 'Leyendo', pendiente_lectura: 'Lectura en cola', error_lectura: 'No se pudo leer', excepcion: 'Para revisar', lista: 'Lista para Shares', cargada: 'Cargada en Shares', error_shares: 'Error Shares', rechazada: 'Rechazada' };
 const badgeEstado = (e) => `<span class="badge b-${esc(e)}">${esc(ESTADOS[e] || e)}</span>`;
 const JURIS = ['BUENOS AIRES', 'CABA', 'CORDOBA', 'SANTA FE', 'MENDOZA', 'NEUQUEN', 'SALTA', 'TUCUMAN', 'CHACO', 'MISIONES', 'RIO NEGRO', 'CORRIENTES', 'CHUBUT', 'LA PAMPA', 'TIERRA DEL FUEGO'];
 
@@ -662,6 +662,11 @@ const MOTIVOS = {
   ARCA_ERROR: ['ARCA no respondió', 'No se pudo constatar el CAE.'],
   ARCA_OBSERVADO: ['ARCA con observaciones', ''],
   IA_OBS: ['Observación de la IA', ''],
+  QR_INCONSISTENTE: ['QR distinto de lo leído', 'Se usaron los datos del QR de ARCA: verificalos contra el comprobante.'],
+  ILEGIBLE: ['Se lee mal', 'Verificá CUIT, número y total contra la imagen o volvé a escanearlo.'],
+  VIATICO_TOTAL: ['Total distinto al rendido', 'Lo que rindió el supervisor no coincide con el comprobante.'],
+  VIATICO_DATOS: ['Datos del supervisor', 'Se tomaron los datos que confirmó el supervisor en Viáticos.'],
+  IA_MODELO: ['Lectura automática', ''],
 };
 const motivoT = (c) => (MOTIVOS[c] || [c])[0];
 function chipsExc(s, max = 2) {
@@ -677,7 +682,7 @@ const badgeMedio = (m, origen) => (origen === 'viatico' ? `<span class="badge b-
 // ---------------------------------------------------------------------------
 //  Versión celular para el rol "escaneo": un botón grande y la lista de lo suyo
 // ---------------------------------------------------------------------------
-const ESTADO_SIMPLE = { leyendo: 'Leyendo con IA…', error_lectura: 'No se pudo leer', excepcion: 'Recibido', lista: 'Recibido', cargada: 'Cargado', error_shares: 'Recibido', rechazada: 'Rechazado' };
+const ESTADO_SIMPLE = { leyendo: 'Leyendo con IA…', pendiente_lectura: 'En cola de lectura', error_lectura: 'No se pudo leer', excepcion: 'Recibido', lista: 'Recibido', cargada: 'Cargado', error_shares: 'Recibido', rechazada: 'Rechazado' };
 const badgeSimple = (e) => `<span class="badge b-${e === 'rechazada' || e === 'error_lectura' ? 'rechazada' : e === 'cargada' ? 'cargada' : 'lista'}">${esc(ESTADO_SIMPLE[e] || e)}</span>`;
 
 async function vistaEscaneo() {
@@ -705,7 +710,7 @@ async function vistaEscaneo() {
       ${esStandalone() ? '' : '<div class="esc-instalar" data-instalar></div>'}
       <h2 class="esc-h">Lo que cargaste</h2>
       <div id="esc-lista"><div class="vacio"><span class="cargando"></span></div></div>
-      <p class="esc-ver">versión 1.4.1</p>
+      <p class="esc-ver">versión 1.6.0</p>
     </main></div>`;
   $('#b-tema').onclick = alternarTema;
   // El input va DENTRO del botón y lo toca la persona: es lo único 100% confiable en iPhone
@@ -755,9 +760,10 @@ async function procesarSubidas() {
       const it = SUBIDAS.cola.find(x => x.estado === 'subiendo');
       if (!it) break;
       try {
-        const r = await api('/api/comprobantes', { method: 'POST', body: { medio_pago: it.medio, archivo_b64: await blobB64(it.blob), mime: it.blob.type || 'image/jpeg', nombre: 'ticket.jpg' } });
+        const a = await prepararArchivo(it.blob, it.blob.type || 'image/jpeg');
+        const r = await api('/api/comprobantes', { method: 'POST', body: { medio_pago: it.medio, archivo_b64: a.b64, mime: a.mime, nombre: 'ticket.jpg', qr_texto: a.qr_texto } });
         it.estado = 'ok'; it.cid = r.comprobante.id; it.blob = null;
-        if (S.user?.rol !== 'escaneo') toast(`✓ Ticket #${it.cid} recibido: se está leyendo solo`);
+        if (S.user?.rol !== 'escaneo') toast(`Ticket #${it.cid} recibido: se está leyendo solo`);
       } catch (e) { it.estado = 'error'; it.error = e.message; }
       avisarSubidas();
     }
@@ -982,6 +988,90 @@ async function iniciarCarga(tipo, opciones = {}) {
 
 const blobB64 = (blob) => new Promise((ok, mal) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = mal; r.readAsDataURL(blob); });
 
+// ---------------------------------------------------------------------------
+//  Antes de subir: las fotos se achican a JPEG (menos tokens, lectura más rápida) y se busca el QR de ARCA
+//  (CUIT, tipo, punto de venta, número, fecha, total y CAE sin usar IA). Si algo falla, se sube el original.
+// ---------------------------------------------------------------------------
+// Lector de QR: BarcodeDetector del navegador (Android) y, si no está, zxing (el mismo motor que usa el lector de
+// facturas en Python), con dos binarizadores y varias escalas.
+const ZXING_URL = 'https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.4/dist/iife/reader/index.js';
+let _zxingCarga = null;
+function cargarZXing() {
+  if (window.ZXingWASM) return Promise.resolve(window.ZXingWASM);
+  if (!_zxingCarga) _zxingCarga = new Promise((ok, mal) => {
+    const sc = document.createElement('script'); sc.src = ZXING_URL;
+    sc.onload = () => ok(window.ZXingWASM); sc.onerror = () => { _zxingCarga = null; mal(new Error('no cargó zxing')); };
+    document.head.appendChild(sc);
+  });
+  return _zxingCarga;
+}
+const esQRArca = (t) => /[?&]p=/.test(String(t || '')) && /qr/i.test(String(t || ''));
+async function buscarQR(fuente) {   // fuente: <canvas> o <img>
+  const W = fuente.width || fuente.naturalWidth, H = fuente.height || fuente.naturalHeight;
+  try {
+    if ('BarcodeDetector' in window) {
+      const cods = await new window.BarcodeDetector({ formats: ['qr_code'] }).detect(fuente);
+      const c = cods.find(x => esQRArca(x.rawValue));
+      if (c) return c.rawValue;
+    }
+  } catch { /* sin BarcodeDetector: se usa zxing */ }
+  try {
+    const Z = await cargarZXing();
+    const L = Math.max(W, H);
+    const escalas = [...new Set([1, 2600 / L, 2000 / L, 1500 / L, 1.35].map(k => Math.round(k * 100) / 100))].filter(k => k <= 1.35);
+    for (const k of escalas) for (const binarizer of ['LocalAverage', 'GlobalHistogram']) {
+      const w = Math.round(W * k), h = Math.round(H * k);
+      if (w * h > 9e6 || Math.min(w, h) < 200) continue;
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      const cx = cv.getContext('2d', { willReadFrequently: true }); cx.drawImage(fuente, 0, 0, w, h);
+      const r = await Z.readBarcodes(cx.getImageData(0, 0, w, h), { formats: ['QRCode'], tryHarder: true, binarizer, maxNumberOfSymbols: 1 });
+      const t = (r || []).find(x => esQRArca(x.text));
+      if (t) return t.text;
+    }
+  } catch { /* sin QR */ }
+  return null;
+}
+async function qrDePdf(blob) {
+  try {
+    const pdfjs = await cargarPdfjs();
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+    const paginas = [...new Set([1, doc.numPages])];
+    for (const n of paginas) {   // 1) el QR como link dentro del PDF (lo más común)
+      const anots = await (await doc.getPage(n)).getAnnotations().catch(() => []);
+      const link = anots.map(a => a.url || a.unsafeUrl || '').find(esQRArca);
+      if (link) return link;
+    }
+    for (const n of paginas) {   // 2) el QR dibujado: se renderiza la página y se lo busca
+      const pag = await doc.getPage(n);
+      const vp = pag.getViewport({ scale: 2.5 });
+      const cv = document.createElement('canvas'); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+      await pag.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+      const q = await buscarQR(cv);
+      if (q) return q;
+    }
+  } catch { /* PDF raro: lo lee la IA */ }
+  return null;
+}
+const cargarImagen = (blob) => new Promise((ok, mal) => { const img = new Image(); img.onload = () => ok(img); img.onerror = mal; img.src = URL.createObjectURL(blob); });
+async function prepararArchivo(blob, mime) {
+  mime = mime || blob.type || 'application/octet-stream';
+  if (mime === 'application/pdf') return { b64: await blobB64(blob), mime, qr_texto: await qrDePdf(blob) };
+  if (!/^image\//.test(mime)) return { b64: await blobB64(blob), mime, qr_texto: null };
+  try {
+    const img = await cargarImagen(blob);
+    // Lado máximo 3000 px y ~4,5 MP: los tickets largos y angostos conservan el ancho (letra legible)
+    const k = Math.min(1, 3000 / Math.max(img.width, img.height), Math.sqrt(4.5e6 / (img.width * img.height)));
+    const cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(img.width * k)); cv.height = Math.max(1, Math.round(img.height * k));
+    cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+    const qr = await buscarQR(img);   // el QR se busca en la foto original (si es chico, se ve mejor)
+    const jpeg = await new Promise(ok => cv.toBlob(ok, 'image/jpeg', 0.85));
+    const final = jpeg && (jpeg.size < blob.size || mime !== 'image/jpeg') ? jpeg : blob;
+    return { b64: await blobB64(final), mime: final === blob ? mime : 'image/jpeg', qr_texto: qr };
+  } catch {
+    return { b64: await blobB64(blob), mime, qr_texto: null };   // formato que el navegador no abre (p. ej. HEIC en Chrome)
+  }
+}
+
 async function subirComprobantes(archivos, medio, opciones = {}) {
   let cerrar;
   modal(`<h2>${archivos.length === 1 ? 'Leyendo el comprobante' : `Leyendo ${archivos.length} comprobantes`}</h2><p class="muted">Se guarda en Drive y la IA lo lee. Tarda unos segundos.</p><div id="sub-res"></div>`, { alMontar: (el, c) => { cerrar = c; } });
@@ -992,8 +1082,9 @@ async function subirComprobantes(archivos, medio, opciones = {}) {
     linea.className = 'linea-res'; linea.innerHTML = `<span class="cargando"></span>${esc(a.nombre)}`;
     res.appendChild(linea);
     try {
-      if (a.blob.size > 15e6) throw new Error('supera 15 MB');
-      const r = await api('/api/comprobantes', { method: 'POST', body: { medio_pago: medio, archivo_b64: await blobB64(a.blob), mime: a.mime, nombre: a.nombre, movimiento_id: opciones.movimiento_id || null } });
+      const arch = await prepararArchivo(a.blob, a.mime);
+      if (arch.b64.length * 0.75 > 15e6) throw new Error('supera 15 MB');
+      const r = await api('/api/comprobantes', { method: 'POST', body: { medio_pago: medio, archivo_b64: arch.b64, mime: arch.mime, nombre: a.nombre, qr_texto: arch.qr_texto, movimiento_id: opciones.movimiento_id || null } });
       ultimo = r.comprobante.id;
       linea.className = 'linea-res bien';
       linea.innerHTML = `${ICO.check}<span>${esc(r.datos?.emisor?.razon_social || a.nombre)} · ${$$m(r.datos?.importes?.total)} → <a href="#/comprobante/${r.comprobante.id}">#${r.comprobante.id}</a> ${badgeEstado(r.comprobante.estado)}</span>`;
@@ -1209,7 +1300,7 @@ async function vistaInicio(el) {
 async function vistaLista(el, modo) {
   const revisar = modo === 'revisar';
   let medio = sessionStorage.getItem('cmp_medio') || '';
-  let estado = revisar ? 'excepcion,error_lectura,leyendo' : (sessionStorage.getItem('cmp_estado') || '');
+  let estado = revisar ? 'excepcion,error_lectura,leyendo,pendiente_lectura' : (sessionStorage.getItem('cmp_estado') || '');
   const q0 = sessionStorage.getItem('cmp_q') || ''; sessionStorage.removeItem('cmp_q');
   el.innerHTML = `<div class="encabezado"><div><h1>${revisar ? 'Para revisar' : 'Todos los comprobantes'}</h1><p>${revisar ? 'Lo que necesita una persona: falta un dato, la cuenta o algo no cierra.' : 'Todo lo cargado, con el archivo original a un clic.'}</p></div>
       <div class="acciones">${revisar ? '' : `<button class="btn" id="b-csv">${ICO.doc}Exportar CSV</button>`}<button class="btn btn-negro" data-cargar2="pdf">${ICO.upload}Subir factura</button></div></div>
@@ -1269,7 +1360,7 @@ async function vistaComprobante(el, id) {
 
 function pintarComprobante(el, r) {
   const f = r.comprobante, d = r.datos || vacioDatos(), c = d.comprobante || {}, im = d.importes || {};
-  const editable = ['excepcion', 'lista', 'error_shares', 'error_lectura'].includes(f.estado);
+  const editable = ['excepcion', 'lista', 'error_shares', 'error_lectura', 'pendiente_lectura'].includes(f.estado);
   const dis = editable ? '' : 'disabled';
   const inp = (name, val, extra = '') => `<input name="${name}" value="${esc(val ?? '')}" ${dis} ${extra}>`;
   const abiertas = r.excepciones.filter(e => !e.resuelta && e.severidad !== 'aviso');
@@ -1299,6 +1390,7 @@ function pintarComprobante(el, r) {
         ${r.viatico ? `<div class="viatico-info"><b>Viático</b> · rendido por <b>${esc(r.viatico.supervisor || '—')}</b>${r.viatico.destino ? ' en ' + esc(r.viatico.destino) : ''}${r.viatico.fecha_rendicion ? ' · rendición ' + fmtF(r.viatico.fecha_rendicion) : ''}${r.viatico.categoria ? ' · ' + esc(r.viatico.categoria) : ''}${r.viatico.total_declarado ? ' · declaró ' + $$m(r.viatico.total_declarado) : ''}${r.viatico.observaciones ? `<br><span class="muted">${esc(r.viatico.observaciones)}</span>` : ''}</div>` : ''}
       </section>
       ${f.estado === 'leyendo' ? `<section class="tarea"><div class="panel-titulo"><h2>Leyéndose con IA</h2><span class="cargando"></span></div><div class="cuerpo"><p class="small">Se está leyendo en segundo plano: en unos segundos aparecen los datos solos. Mientras tanto podés seguir con otra cosa.</p></div></section>` : ''}
+      ${f.estado === 'pendiente_lectura' ? `<section class="tarea"><div class="panel-titulo"><h2>Lectura en cola</h2><span class="badge b-leyendo">${ICO.clock}Se lee sola</span></div><div class="cuerpo"><p class="small">${esc(f.error_proceso || 'La lectura automática no está disponible en este momento.')}</p><p class="small muted">El archivo está guardado y no se pierde. ${f.lectura_proximo_at ? `Próximo intento: ${fmtFH(f.lectura_proximo_at)}.` : ''} Si lo necesitás ya, tocá "Volver a leer" o cargá los datos a mano.</p></div></section>` : ''}
       ${abiertas.length ? `<section class="tarea"><div class="panel-titulo"><h2>Qué falta</h2><span class="badge b-acc">${abiertas.length}</span></div><div class="cuerpo">
         ${abiertas.map(e => `<div class="excepcion ${e.severidad}"><div class="txt"><b>${esc(motivoT(e.codigo))}</b><br>${esc(e.mensaje)}</div>
           ${editable && !['CUENTA', 'SIN_CUIT', 'SIN_RAZON', 'SIN_TOTAL', 'SIN_FECHA', 'SIN_TIPO'].includes(e.codigo) && (e.severidad !== 'critica' || puede('admin')) ? `<button class="btn btn-chico${e.codigo === 'VIATICO' ? ' btn-negro' : ''}" data-aceptar="${esc(e.codigo)}">${e.codigo === 'CUENTA_IA' ? 'Confirmar cuenta' : e.codigo === 'VIATICO' ? 'Marcar como revisado' : 'Aceptar igual'}</button>` : ''}</div>`).join('')}</div></section>`
@@ -1616,17 +1708,78 @@ async function vistaAdmin(el) {
   $$('#atabs button').forEach(b => b.onclick = () => ir(Number(b.dataset.t)));
   ir(0);
 }
+// ---------------------------------------------------------------------------
+//  Estado de la lectura automática (worker gemini-luccianos) — mismo bloque en las tres apps
+//  g = respuesta de /salud de gemini-luccianos para esta app; extras = [[título, valor], ...]
+// ---------------------------------------------------------------------------
+const SG_ICO = {
+  ok: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
+  pausa: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  mal: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></svg>',
+};
+const SG_ESTADOS = {
+  disponible: ['ok', 'Disponible'], cuota_diaria_agotada: ['mal', 'Cuota diaria agotada'], sin_cuota_gratuita: ['pausa', 'Sin cuota gratuita'],
+  en_pausa_por_minuto: ['pausa', 'En pausa (cuota por minuto)'], enfermo: ['pausa', 'En pausa por fallas'], no_disponible: ['mal', 'Ya no existe'],
+};
+const SG_CATEGORIAS = {
+  cuota_minuto: 'Cuota por minuto', cuota_dia: 'Cuota diaria agotada', sin_acceso_gratis: 'Sin cuota gratuita', sobrecarga: 'Gemini saturado (503)',
+  error_servidor: 'Error de Gemini (500)', timeout: 'No respondió a tiempo', red: 'Sin conexión', sin_tiempo: 'Se acabó el tiempo',
+  modelo_inexistente: 'Modelo inexistente', sin_modelos: 'Sin modelos disponibles', archivo_invalido: 'Archivo ilegible', archivo_grande: 'Archivo muy grande',
+  bloqueo_seguridad: 'Bloqueo de seguridad', respuesta_cortada: 'Respuesta cortada', json_invalido: 'JSON inválido', respuesta_invalida: 'Respuesta inválida',
+  respuesta_vacia: 'Respuesta vacía', clave_invalida: 'Clave inválida', region_no_soportada: 'Región no habilitada', solicitud_invalida: 'Solicitud inválida',
+  config_thinking: 'Configuración no aceptada', config_esquema: 'Configuración no aceptada',
+};
+function htmlSaludGemini(g, extras = []) {
+  const e = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fecha = (s) => { const d = new Date(String(s || '').replace(' ', 'T') + (/Z|[+-]\d\d:?\d\d$/.test(String(s)) ? '' : 'Z')); return isNaN(d) ? e(s) : d.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }); };
+  const tono = { ok: 'color:#2e7d32;background:rgba(46,125,50,.10)', pausa: 'color:#9a6a12;background:rgba(179,121,31,.12)', mal: 'color:#b3261e;background:rgba(179,38,30,.10)' };
+  const chip = (t, txt) => `<span style="display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;${tono[t]}">${SG_ICO[t]}${e(txt)}</span>`;
+  const caja = 'border:1px solid rgba(127,127,127,.22);border-radius:12px;padding:14px 16px;margin:0 0 12px';
+  const th = 'text-align:left;font-size:12px;font-weight:600;opacity:.65;padding:6px 8px;border-bottom:1px solid rgba(127,127,127,.22)';
+  const td = 'padding:7px 8px;border-bottom:1px solid rgba(127,127,127,.12);vertical-align:top';
+  if (!g || g.error) return `<div style="${caja}"><b>Lectura automática</b><p style="margin:6px 0 0">${chip('mal', 'Sin conexión')} ${e(g?.error || 'El servicio de lectura no respondió.')}</p></div>`;
+  const filas = (lista) => (lista || []).map(m => {
+    const [t, txt] = SG_ESTADOS[m.estado] || ['pausa', m.estado];
+    return `<tr><td style="${td};font-family:ui-monospace,monospace;font-size:12.5px">${e(m.modelo)}</td><td style="${td}">${e(m.familia)}</td>
+      <td style="${td}">${chip(t, txt)}${m.hasta_ar ? `<div style="font-size:12px;opacity:.7;margin-top:3px">hasta ${e(m.hasta_ar)}</div>` : ''}${m.ultimo_error && m.estado === 'enfermo' ? `<div style="font-size:12px;opacity:.7">${e(SG_CATEGORIAS[m.ultimo_error] || m.ultimo_error)}</div>` : ''}</td>
+      <td style="${td};text-align:right;font-variant-numeric:tabular-nums">${m.llamadas_hoy}${m.limite_dia ? ` <span style="opacity:.6">/ ${m.limite_dia}</span>` : ''}</td>
+      <td style="${td};text-align:right;font-variant-numeric:tabular-nums">${m.errores_hoy}</td></tr>`;
+  }).join('');
+  const disponibles = (g.cadena_rapido || []).filter(m => m.estado === 'disponible').length;
+  const estadoGeneral = !g.clave_cargada ? chip('mal', 'Falta la clave') : disponibles ? chip('ok', `${disponibles} de ${(g.cadena_rapido || []).length} modelos disponibles`) : chip('mal', 'Ningún modelo disponible ahora');
+  const dato = (t, v) => `<div style="min-width:120px"><div style="font-size:12px;opacity:.65">${e(t)}</div><div style="font-size:18px;font-weight:700;font-variant-numeric:tabular-nums">${v}</div></div>`;
+  return `<div style="${caja}">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:space-between"><b style="font-size:15px">Lectura automática (Gemini)</b>${estadoGeneral}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:22px;margin-top:12px">
+        ${dato('Llamadas a Gemini hoy', g.hoy?.llamadas ?? 0)}${dato('Errores hoy', g.hoy?.errores ?? 0)}${dato('Tasa de error 24 h', (g.tasa_error_24h ?? 0).toLocaleString('es-AR') + ' %')}
+        ${dato('Tokens hoy', Number(g.hoy?.tokens ?? 0).toLocaleString('es-AR'))}${extras.map(([t, v]) => dato(t, e(v))).join('')}
+      </div>
+      <p style="font-size:12.5px;opacity:.7;margin:10px 0 0">La cuota gratuita se renueva todos los días a las ${e(g.reinicio_cuota_ar || '—')} (hora argentina). Lista de modelos actualizada ${g.modelos_at ? fecha(g.modelos_at) : '—'}${g.version ? ` · servicio v${e(g.version)}` : ''}.</p>
+      ${g.modelos_error ? `<p style="font-size:13px;margin:8px 0 0">${chip('mal', 'Aviso')} ${e(g.modelos_error)}</p>` : ''}
+    </div>
+    <div style="${caja}"><b>Modelos en uso, en el orden en que se prueban</b>
+      <div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:13.5px"><thead><tr><th style="${th}">Modelo</th><th style="${th}">Familia</th><th style="${th}">Estado</th><th style="${th};text-align:right">Llamadas hoy</th><th style="${th};text-align:right">Errores hoy</th></tr></thead>
+      <tbody>${filas(g.cadena_rapido) || `<tr><td colspan="5" style="${td}">Sin modelos.</td></tr>`}</tbody></table></div>
+      <p style="font-size:12px;opacity:.65;margin:8px 0 0">"Llamadas hoy / límite": el límite diario lo informa Google recién cuando se alcanza por primera vez. Cada reintento cuenta como una llamada.</p></div>
+    <div style="${caja}"><b>Últimos errores</b>
+      ${(g.ultimos_errores || []).length ? `<div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th style="${th}">Fecha</th><th style="${th}">Archivo</th><th style="${th}">Modelo</th><th style="${th}">Qué pasó</th></tr></thead><tbody>
+        ${g.ultimos_errores.map(x => `<tr><td style="${td};white-space:nowrap">${fecha(x.fecha)}</td><td style="${td}">${e(x.archivo || '—')}</td><td style="${td};font-family:ui-monospace,monospace;font-size:12px;white-space:nowrap">${e(x.modelo || '—')}${x.http ? `<div style="opacity:.6">HTTP ${x.http}</div>` : ''}</td>
+          <td style="${td}"><b>${e(SG_CATEGORIAS[x.categoria] || x.categoria)}</b><div style="opacity:.8">${e(x.mensaje || '')}</div></td></tr>`).join('')}
+      </tbody></table></div>` : '<p style="margin:6px 0 0;opacity:.7">Sin errores registrados.</p>'}</div>`;
+}
+
 async function adminSalud(el) {
   const s = await api('/api/salud');
   const fila = (ok, t, det, prueba) => `<tr><td>${ok ? '<span class="badge b-ok">OK</span>' : '<span class="badge b-normal">Falta</span>'}</td><td><b>${t}</b><div class="small muted">${det}</div></td><td>${prueba ? `<button class="btn btn-chico" data-probar="${prueba}">Probar</button>` : ''}</td></tr>`;
   el.innerHTML = `<table><tbody>
-    ${fila(s.gemini, 'Gemini (lectura con IA)', `GEMINI_KEY · modelos ${esc(s.gemini_modelos.join(', '))}`, 'gemini')}
+    ${fila(s.gemini, 'Gemini (lectura con IA)', 'Servicio gemini-luccianos (Service binding GEMINI) · los modelos se eligen solos', 'gemini')}
     ${fila(s.drive, 'Google Drive (vía Apps Script)', 'APPS_SCRIPT_URL y APPS_SCRIPT_SECRET', 'drive')}
     ${fila(s.shares, 'Shares', esc(s.shares_base), 'shares')}
     ${fila(s.arca_cert && s.arca_modo !== 'off', 'ARCA (constatación de CAE)', `modo ${esc(s.arca_modo)} · certificado ${s.arca_cert ? 'cargado' : 'falta'} (opcional)`, s.arca_modo !== 'off' ? 'arca' : '')}
     ${fila(s.cuentas > 0, 'Plan de cuentas', `${s.cuentas} cuentas`)}
     ${fila(true, 'Comercios conocidos', `${s.comercios} (la app recuerda su cuenta)`)}
-  </tbody></table><p class="small muted">Versión ${esc(s.version)}</p>`;
+  </tbody></table><p class="small muted">Versión ${esc(s.version)}</p>
+  <div style="margin-top:16px">${htmlSaludGemini(s.gemini_salud, [['En cola de lectura', String(s.cola_lectura?.pendientes ?? 0)], ['Leyéndose ahora', String(s.cola_lectura?.leyendo ?? 0)]])}</div>`;
   $$('[data-probar]', el).forEach(b => b.onclick = () => conBoton(b, async () => { const r = await api('/api/probar/' + b.dataset.probar, { method: 'POST' }); toast(r.mensaje); }));
 }
 async function adminCuentas(el) {
